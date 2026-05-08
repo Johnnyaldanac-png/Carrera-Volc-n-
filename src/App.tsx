@@ -12,7 +12,11 @@ import {
   CheckCircle2, 
   AlertCircle,
   ChevronRight,
-  Info
+  Info,
+  Facebook,
+  Twitter,
+  MessageCircle,
+  Share2
 } from 'lucide-react';
 import { APP_CONFIG } from './config';
 
@@ -444,6 +448,56 @@ export default function App() {
                       <p className="text-orange-700 font-bold text-sm">
                         Si no recibe respuesta en las próximas 72 horas escriba al número <span className="whitespace-nowrap">0414-2526647</span>
                       </p>
+                    </div>
+
+                    {/* SOCIAL SHARING */}
+                    <div className="space-y-4">
+                      <p className="text-[10px] uppercase font-bold text-gray-400 tracking-widest">¡Comparte con tus amigos!</p>
+                      <div className="flex items-center justify-center space-x-3">
+                        <a 
+                          href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.origin)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-3 bg-blue-600 text-white rounded-2xl hover:scale-110 transition-transform shadow-lg shadow-blue-200"
+                          title="Compartir en Facebook"
+                        >
+                          <Facebook size={20} />
+                        </a>
+                        <a 
+                          href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(window.location.origin)}&text=${encodeURIComponent('¡Me acabo de inscribir en el Desafío El Volcán! Únete a la carrera aquí:')}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-3 bg-black text-white rounded-2xl hover:scale-110 transition-transform shadow-lg shadow-gray-200"
+                          title="Compartir en X (Twitter)"
+                        >
+                          <Twitter size={20} />
+                        </a>
+                        <a 
+                          href={`https://wa.me/?text=${encodeURIComponent('¡Me acabo de inscribir en el Desafío El Volcán! Únete a la carrera aquí: ' + window.location.origin)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-3 bg-green-500 text-white rounded-2xl hover:scale-110 transition-transform shadow-lg shadow-green-200"
+                          title="Compartir en WhatsApp"
+                        >
+                          <MessageCircle size={20} />
+                        </a>
+                        <button 
+                          onClick={() => {
+                            navigator.share?.({
+                              title: 'Desafío El Volcán',
+                              text: '¡Me acabo de inscribir en el Desafío El Volcán!',
+                              url: window.location.origin
+                            }).catch(() => {
+                              navigator.clipboard.writeText(window.location.origin);
+                              alert('Enlace copiado al portapapeles');
+                            });
+                          }}
+                          className="p-3 bg-orange-100 text-orange-600 rounded-2xl hover:scale-110 transition-transform"
+                          title="Más opciones de compartido"
+                        >
+                          <Share2 size={20} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                   <button 
