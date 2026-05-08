@@ -36,6 +36,23 @@ const registrationSchema = z.object({
     .refine((files) => files?.length > 0, "El comprobante de pago es obligatorio")
     .refine((files) => files?.[0]?.type.startsWith('image/'), "Debe ser una imagen (JPG, PNG, etc.)")
     .refine((files) => files?.[0]?.size <= 5000000, "La imagen no debe pesar más de 5MB")
+}).refine((data) => {
+  if (!data.birthDay || !data.birthMonth || !data.birthYear) return true;
+  
+  const birthDate = new Date(parseInt(data.birthYear), parseInt(data.birthMonth) - 1, parseInt(data.birthDay));
+  const today = new Date();
+  
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+  
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+  
+  return age >= 16;
+}, {
+  message: "Debes tener al menos 16 años para participar",
+  path: ["birthYear"]
 });
 
 type RegistrationFormData = z.infer<typeof registrationSchema>;
@@ -44,7 +61,6 @@ type RegistrationFormData = z.infer<typeof registrationSchema>;
 // UTILS & CONSTANTS
 // --------------------------------------------------------------------------------
 
-const days = Array.from({ length: 31 }, (_, i) => (i + 1).toString());
 const months = [
   { value: '01', label: 'Enero' },
   { value: '02', label: 'Febrero' },
@@ -82,6 +98,28 @@ export default function App() {
   } = useForm<RegistrationFormData>({
     resolver: zodResolver(registrationSchema)
   });
+
+  const watchMonth = watch('birthMonth');
+  const watchYear = watch('birthYear');
+  const watchDay = watch('birthDay');
+
+  // Calculate days based on month and year
+  const getDaysInMonth = (month: string, year: string) => {
+    if (!month) return 31;
+    const m = parseInt(month);
+    const y = year ? parseInt(year) : 2000; // Default year for leap year check if not selected
+    return new Date(y, m, 0).getDate();
+  };
+
+  const dynamicDaysCount = getDaysInMonth(watchMonth, watchYear);
+  const dynamicDays = Array.from({ length: dynamicDaysCount }, (_, i) => (i + 1).toString());
+
+  // Effect to reset day if it's invalid for the new month/year
+  React.useEffect(() => {
+    if (watchDay && parseInt(watchDay) > dynamicDaysCount) {
+      setValue('birthDay', '');
+    }
+  }, [watchMonth, watchYear, dynamicDaysCount, watchDay, setValue]);
 
   const onSubmit = async (data: RegistrationFormData) => {
     setIsSubmitting(true);
@@ -223,10 +261,13 @@ export default function App() {
           {/* PAYMENT INFO BOX */}
           <section className="bg-white p-6 rounded-3xl border border-gray-100 shadow-xl shadow-gray-200/50 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-orange-50 rounded-full -mr-16 -mt-16 opacity-50" />
-            <h3 className="text-lg font-bold flex items-center space-x-2 mb-4 relative z-10">
+            <h3 className="text-lg font-bold flex items-center space-x-2 mb-1 relative z-10">
               <CreditCard className="text-orange-500" />
               <span>Datos de Pago</span>
             </h3>
+            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-4 relative z-10">
+              a tasa bcv del dia
+            </p>
             <div className="space-y-4 relative z-10">
               <div className="flex flex-col">
                 <span className="text-[10px] uppercase font-bold text-gray-400 tracking-widest">Banco</span>
@@ -336,7 +377,7 @@ export default function App() {
                           className="bg-gray-50 border-none rounded-2xl p-4 text-sm font-medium focus:ring-2 focus:ring-orange-500 appearance-none"
                         >
                           <option value="">Día</option>
-                          {days.map(d => <option key={d} value={d}>{d}</option>)}
+                          {dynamicDays.map(d => <option key={d} value={d}>{d}</option>)}
                         </select>
                         <select
                           {...register('birthYear')}
@@ -347,7 +388,9 @@ export default function App() {
                         </select>
                       </div>
                       {(errors.birthDay || errors.birthMonth || errors.birthYear) && (
-                        <p className="text-[10px] text-red-500 font-bold ml-1">Fecha incompleta</p>
+                        <p className="text-[10px] text-red-500 font-bold ml-1">
+                          {errors.birthYear?.message || errors.birthDay?.message || errors.birthMonth?.message || "Fecha incompleta"}
+                        </p>
                       )}
                     </div>
 
