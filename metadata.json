@@ -1,0 +1,6 @@
+{
+  "name": "Registro Carrera de Running",
+  "description": "Plataforma de inscripción para maratones y carreras con validación de datos, categorías personalizadas y carga de comprobantes de pago.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
