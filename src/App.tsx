@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -8,7 +8,7 @@ import {
   Calendar, 
   CreditCard, 
   Upload, 
-  User, 
+  User as UserIcon, 
   CheckCircle2, 
   AlertCircle,
   ChevronRight,
@@ -16,9 +16,14 @@ import {
   Facebook,
   Twitter,
   MessageCircle,
-  Share2
+  Share2,
+  LogOut,
+  ChevronDown
 } from 'lucide-react';
 import { APP_CONFIG } from './config';
+import { auth, googleProvider, db } from './lib/firebase';
+import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { collection, addDoc, serverTimestamp, setDoc, doc, query, where, getDocs, orderBy } from 'firebase/firestore';
 
 // --------------------------------------------------------------------------------
 // VALIDATION SCHEMA
@@ -83,21 +88,47 @@ const years = Array.from({ length: 100 }, (_, i) => (currentYear - 100 + i + 1).
 // --------------------------------------------------------------------------------
 
 export default function App() {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [currentView, setCurrentView] = useState<'register' | 'about' | 'contact'>('register');
+  const [currentView, setCurrentView] = useState<'register' | 'about' | 'contact' | 'history'>('register');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [userRegistrations, setUserRegistrations] = useState<any[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
   const {
     register,
     handleSubmit,
     setValue,
     watch,
+    reset,
     formState: { errors }
   } = useForm<RegistrationFormData>({
     resolver: zodResolver(registrationSchema)
   });
+
+  // Fetch User History
+  const fetchHistory = async (uid: string) => {
+    setIsLoadingHistory(true);
+    try {
+      const q = query(
+        collection(db, 'registrations'), 
+        where('userId', '==', uid),
+        orderBy('createdAt', 'desc')
+      );
+      const querySnapshot = await getDocs(q);
+      const regs = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setUserRegistrations(regs);
+    } catch (error) {
+      console.error("Error fetching history:", error);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  };
 
   const watchMonth = watch('birthMonth');
   const watchYear = watch('birthYear');
@@ -121,10 +152,66 @@ export default function App() {
     }
   }, [watchMonth, watchYear, dynamicDaysCount, watchDay, setValue]);
 
+  // Auth State Listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      if (user) {
+        // Sync user to firestore
+        setDoc(doc(db, 'users', user.uid), {
+          uid: user.uid,
+          displayName: user.displayName,
+          email: user.email,
+          photoURL: user.photoURL,
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+
+        // Pre-fill form
+        if (user.displayName) setValue('fullName', user.displayName);
+        if (user.email) setValue('email', user.email);
+        
+        fetchHistory(user.uid);
+      } else {
+        setUserRegistrations([]);
+      }
+    });
+    return () => unsubscribe();
+  }, [setValue]);
+
+  const handleLogin = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      console.error('Login Error:', error);
+      alert('Error al iniciar sesión con Google');
+    }
+  };
+
+  const handleLogout = async () => {
+    await signOut(auth);
+  };
+
   const onSubmit = async (data: RegistrationFormData) => {
     setIsSubmitting(true);
     
     try {
+      // 1. Prepare data for Firestore
+      const registrationData = {
+        fullName: data.fullName,
+        email: data.email,
+        idNumber: data.cedula,
+        birthDay: data.birthDay,
+        birthMonth: data.birthMonth,
+        birthYear: data.birthYear,
+        category: data.category,
+        userId: currentUser?.uid || 'anonymous',
+        createdAt: serverTimestamp()
+      };
+
+      // 2. Save to Firestore
+      await addDoc(collection(db, 'registrations'), registrationData);
+
+      // 3. (Optional) Also send to backend if needed (legacy)
       const formData = new FormData();
       formData.append('fullName', data.fullName);
       formData.append('email', data.email);
@@ -138,16 +225,18 @@ export default function App() {
         formData.append('proofOfPayment', data.proofOfPayment[0]);
       }
 
-      const response = await fetch('/api/register', {
+      // We still hit the backend to handle the image upload/email if that's what it was doing
+      // In a pure Firebase app, we'd use Firebase Storage. 
+      // But keeping existing backend call for image processing.
+      await fetch('/api/register', {
         method: 'POST',
         body: formData,
       });
 
-      if (!response.ok) {
-        throw new Error('Error al registrar. Por favor intenta de nuevo.');
-      }
-
       setIsSubmitted(true);
+      reset(); // Clear form
+      setImagePreview(null);
+      if (currentUser) fetchHistory(currentUser.uid); // Refresh history
     } catch (error) {
       console.error('Registration Error:', error);
       alert(error instanceof Error ? error.message : 'Error desconocido');
@@ -202,25 +291,57 @@ export default function App() {
             <nav className="flex flex-col space-y-2">
               {[
                 { id: 'register', label: 'Inscríbete', icon: Trophy },
+                { id: 'history', label: 'Mis Inscripciones', icon: Calendar, needsAuth: true },
                 { id: 'about', label: '¿Quiénes somos?', icon: Info },
-                { id: 'contact', label: 'Contacto', icon: User }
+                { id: 'contact', label: 'Contacto', icon: UserIcon }
               ].map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    setCurrentView(item.id as any);
-                    setIsMenuOpen(false);
-                  }}
-                  className={`flex items-center space-x-3 p-4 rounded-2xl font-bold transition-all ${
-                    currentView === item.id 
-                    ? 'bg-orange-50 text-orange-600' 
-                    : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
-                  }`}
-                >
-                  <item.icon size={18} />
-                  <span>{item.label}</span>
-                </button>
+                (!item.needsAuth || currentUser) && (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setCurrentView(item.id as any);
+                      setIsMenuOpen(false);
+                    }}
+                    className={`flex items-center space-x-3 p-4 rounded-2xl font-bold transition-all ${
+                      currentView === item.id 
+                      ? 'bg-orange-50 text-orange-600' 
+                      : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                  >
+                    <item.icon size={18} />
+                    <span>{item.label}</span>
+                  </button>
+                )
               ))}
+
+              <div className="pt-4 mt-4 border-t border-gray-100">
+                {currentUser ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center space-x-3 px-4 py-2">
+                      <img src={currentUser.photoURL || ''} alt="" className="w-8 h-8 rounded-full border border-gray-100" />
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-bold text-gray-900 truncate max-w-[120px]">{currentUser.displayName}</span>
+                        <span className="text-[8px] text-gray-500 truncate max-w-[120px]">{currentUser.email}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleLogout}
+                      className="w-full flex items-center space-x-3 p-4 rounded-2xl font-bold text-red-500 hover:bg-red-50 transition-all"
+                    >
+                      <LogOut size={18} />
+                      <span>Cerrar Sesión</span>
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleLogin}
+                    className="w-full flex items-center space-x-3 p-4 rounded-2xl font-bold text-gray-900 hover:bg-gray-50 transition-all"
+                  >
+                    <img src="https://www.google.com/favicon.ico" className="w-4 h-4" alt="Google" />
+                    <span>Iniciar con Google</span>
+                  </button>
+                )}
+              </div>
             </nav>
           </motion.div>
         )}
@@ -317,12 +438,24 @@ export default function App() {
                   className="space-y-6"
                 >
                   <div className="space-y-4">
-                    <h2 className="text-2xl font-black tracking-tight mb-6">Formulario de Registro</h2>
+                    <div className="flex items-center justify-between mb-6">
+                      <h2 className="text-2xl font-black tracking-tight">Formulario de Registro</h2>
+                      {!currentUser && (
+                        <button
+                          type="button"
+                          onClick={handleLogin}
+                          className="flex items-center space-x-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-xs font-bold hover:bg-gray-50 transition-all shadow-sm"
+                        >
+                          <img src="https://www.google.com/favicon.ico" className="w-3 h-3" alt="Google" />
+                          <span>Login con Google</span>
+                        </button>
+                      )}
+                    </div>
                     
                     {/* FULL NAME */}
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-1 flex items-center gap-2">
-                        <User size={12} /> Nombre Completo
+                        <UserIcon size={12} /> Nombre Completo
                       </label>
                       <input
                         {...register('fullName')}
@@ -335,7 +468,7 @@ export default function App() {
                     {/* EMAIL */}
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-1 flex items-center gap-2">
-                        <User size={12} /> Correo Electrónico
+                        <UserIcon size={12} /> Correo Electrónico
                       </label>
                       <input
                         {...register('email')}
@@ -552,6 +685,84 @@ export default function App() {
                 </motion.div>
               )}
 
+              {currentView === 'history' && (
+                <motion.div
+                  key="history-view"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="space-y-6 py-4"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <h2 className="text-2xl font-black tracking-tight text-gray-900">Mis Inscripciones</h2>
+                    <button 
+                      onClick={() => currentUser && fetchHistory(currentUser.uid)} 
+                      disabled={isLoadingHistory}
+                      className="p-2 text-orange-500 hover:bg-orange-50 rounded-xl transition-all active:scale-95"
+                    >
+                      <motion.div animate={isLoadingHistory ? { rotate: 360 } : {}} transition={{ repeat: Infinity, duration: 1 }}>
+                        <Calendar size={20} />
+                      </motion.div>
+                    </button>
+                  </div>
+
+                  {isLoadingHistory ? (
+                     <div className="py-20 flex flex-col items-center space-y-4 opacity-50">
+                        <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin" />
+                        <p className="text-xs font-bold uppercase tracking-widest text-gray-400">Cargando...</p>
+                     </div>
+                  ) : userRegistrations.length > 0 ? (
+                    <div className="space-y-4">
+                      {userRegistrations.map((reg) => (
+                        <div key={reg.id} className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-xl shadow-gray-200/50 relative overflow-hidden group">
+                          <div className="absolute top-0 right-0 w-32 h-32 bg-orange-50 rounded-full -mr-16 -mt-16 opacity-0 group-hover:opacity-50 transition-opacity" />
+                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10 text-left">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="px-3 py-1 bg-orange-100 text-orange-600 rounded-lg text-[10px] font-black uppercase tracking-widest">
+                                  {reg.category}
+                                </span>
+                                <span className="text-[10px] font-bold text-gray-400">
+                                  {reg.createdAt?.toDate().toLocaleDateString('es-VE')}
+                                </span>
+                              </div>
+                              <h4 className="text-xl font-black text-gray-900 capitalize">{reg.fullName}</h4>
+                              <p className="text-xs font-bold text-gray-500">{reg.idNumber}</p>
+                            </div>
+                            <div className="flex items-center space-x-3">
+                              <div className="flex flex-col items-end">
+                                <div className="flex items-center space-x-1.5 text-green-500 font-bold text-xs">
+                                  <CheckCircle2 size={12} />
+                                  <span>Recibida</span>
+                                </div>
+                                <span className="text-[10px] text-gray-400 font-medium">Ref: {reg.paymentReference}</span>
+                              </div>
+                              <ChevronRight className="text-gray-300" />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="bg-gray-50 py-16 rounded-[3rem] border-2 border-dashed border-gray-200 flex flex-col items-center text-center px-6">
+                      <div className="w-16 h-16 bg-white rounded-3xl flex items-center justify-center text-gray-200 mb-4 shadow-sm">
+                        <Trophy size={32} />
+                      </div>
+                      <h3 className="text-lg font-black text-gray-900 mb-1">Sin inscripciones</h3>
+                      <p className="text-gray-400 text-xs font-medium max-w-[200px] mb-6">
+                        Aún no has registrado ninguna participación para este evento.
+                      </p>
+                      <button 
+                        onClick={() => setCurrentView('register')}
+                        className="px-6 py-3 bg-orange-500 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-orange-100 hover:scale-105 active:scale-95 transition-all"
+                      >
+                        Inscribirme Ahora
+                      </button>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+
               {currentView === 'about' && (
                 <motion.div 
                   key="about-view"
@@ -597,7 +808,7 @@ export default function App() {
                     </div>
                     <div className="bg-gray-50 p-8 rounded-[2rem] border border-gray-100 flex flex-col items-center text-center space-y-4">
                       <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center text-gray-400">
-                         <User size={32} />
+                         <UserIcon size={32} />
                       </div>
                       <div>
                         <h4 className="font-black text-gray-900">Correo Electrónico</h4>

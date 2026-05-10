@@ -1,0 +1,51 @@
+{
+  "entities": {
+    "registrations": {
+      "title": "Registration",
+      "description": "Athlete race registration data",
+      "type": "object",
+      "properties": {
+        "fullName": { "type": "string" },
+        "idNumber": { "type": "string" },
+        "birthDay": { "type": "string" },
+        "birthMonth": { "type": "string" },
+        "birthYear": { "type": "string" },
+        "gender": { "type": "string" },
+        "tshirtSize": { "type": "string" },
+        "modality": { "type": "string" },
+        "state": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "club": { "type": "string" },
+        "paymentReference": { "type": "string" },
+        "paymentImage": { "type": "string" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["fullName", "idNumber", "birthDay", "birthMonth", "birthYear", "gender", "tshirtSize", "modality", "state", "phone", "email", "paymentReference"]
+    },
+    "users": {
+        "title": "User",
+        "description": "User profile data",
+        "type": "object",
+        "properties": {
+            "uid": { "type": "string" },
+            "displayName": { "type": "string" },
+            "email": { "type": "string" },
+            "photoURL": { "type": "string" },
+            "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["uid", "email"]
+    }
+  },
+  "firestore": {
+    "registrations/{registrationId}": {
+      "schema": "registrations",
+      "description": "Collection of race registrations"
+    },
+    "users/{userId}": {
+        "schema": "users",
+        "description": "Collection of user profiles"
+    }
+  }
+}
