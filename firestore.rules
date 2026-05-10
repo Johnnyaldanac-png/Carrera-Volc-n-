@@ -21,22 +21,14 @@ service cloud.firestore {
     function isValidRegistration(data) {
       return data.fullName is string && data.fullName.size() <= 200 &&
              data.idNumber is string && data.idNumber.size() <= 50 &&
-             data.email is string && data.email.size() <= 100 &&
-             (data.userId == 'anonymous' || (isSignedIn() && data.userId == request.auth.uid));
-    }
-
-    function isValidUser(data) {
-      return data.uid == request.auth.uid &&
-             data.email is string &&
-             data.email.size() <= 100;
+             data.email is string && data.email.size() <= 100;
     }
 
     match /registrations/{registrationId} {
-      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get, list: if resource.data.idNumber is string; // Allow access based on ID number
       allow create: if isValidId(registrationId) && isValidRegistration(request.resource.data) &&
                       request.resource.data.createdAt == request.time;
-      allow update: if false; // Registrations are immutable for now
+      allow update: if false; 
       allow delete: if false;
     }
 

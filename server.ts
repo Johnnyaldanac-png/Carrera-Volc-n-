@@ -52,30 +52,36 @@ async function startServer() {
       console.log(`New registration from ${fullName} (${email})`);
 
       // Notification to Admin
+      console.log("Attempting to send email notification...");
       const resendClient = getResend();
       if (resendClient) {
-        await resendClient.emails.send({
-          from: "Registro Carrera <onboarding@resend.dev>",
-          to: "johnnyaldanac@gmail.com",
-          subject: `Nueva Inscripción: ${fullName} - ${category}`,
-          html: `
-            <h1>Nueva Inscripción Recibida</h1>
-            <p><strong>Nombre:</strong> ${fullName}</p>
-            <p><strong>Email:</strong> ${email}</p>
-            <p><strong>Cédula:</strong> ${cedula}</p>
-            <p><strong>Fecha de Nacimiento:</strong> ${birthDay}/${birthMonth}/${birthYear}</p>
-            <p><strong>Categoría:</strong> ${category}</p>
-            <p>Se ha adjuntado el comprobante de pago.</p>
-          `,
-          attachments: file ? [
-            {
-              filename: file.originalname,
-              content: file.buffer,
-            }
-          ] : [],
-        });
+        try {
+          const emailResponse = await resendClient.emails.send({
+            from: "Registro Carrera <onboarding@resend.dev>",
+            to: "johnnyaldanac@gmail.com",
+            subject: `Nueva Inscripción: ${fullName} - ${category}`,
+            html: `
+              <h1>Nueva Inscripción Recibida</h1>
+              <p><strong>Nombre:</strong> ${fullName}</p>
+              <p><strong>Email:</strong> ${email}</p>
+              <p><strong>Cédula:</strong> ${cedula}</p>
+              <p><strong>Fecha de Nacimiento:</strong> ${birthDay}/${birthMonth}/${birthYear}</p>
+              <p><strong>Categoría:</strong> ${category}</p>
+              <p>Se ha adjuntado el comprobante de pago.</p>
+            `,
+            attachments: file ? [
+              {
+                filename: file.originalname,
+                content: file.buffer,
+              }
+            ] : [],
+          });
+          console.log("Email sent successfully:", emailResponse);
+        } catch (emailError) {
+          console.error("Error sending email via Resend:", emailError);
+        }
       } else {
-        console.warn("RESEND_API_KEY not found. Skipping email notification.");
+        console.error("RESEND_API_KEY is missing in environment variables.");
       }
 
       res.status(200).json({ success: true, message: "Registration received" });

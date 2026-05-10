@@ -88,7 +88,13 @@ const years = Array.from({ length: 100 }, (_, i) => (currentYear - 100 + i + 1).
 // --------------------------------------------------------------------------------
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [session, setSession] = useState<{ fullName: string; idNumber: string } | null>(() => {
+    const saved = localStorage.getItem('race_session');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [loginForm, setLoginForm] = useState({ fullName: '', idNumber: '' });
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -108,13 +114,13 @@ export default function App() {
     resolver: zodResolver(registrationSchema)
   });
 
-  // Fetch User History
-  const fetchHistory = async (uid: string) => {
+  // Fetch History by ID Number
+  const fetchHistory = async (idNumber: string) => {
     setIsLoadingHistory(true);
     try {
       const q = query(
         collection(db, 'registrations'), 
-        where('userId', '==', uid),
+        where('idNumber', '==', idNumber),
         orderBy('createdAt', 'desc')
       );
       const querySnapshot = await getDocs(q);
@@ -145,50 +151,30 @@ export default function App() {
   const dynamicDaysCount = getDaysInMonth(watchMonth, watchYear);
   const dynamicDays = Array.from({ length: dynamicDaysCount }, (_, i) => (i + 1).toString());
 
-  // Effect to reset day if it's invalid for the new month/year
-  React.useEffect(() => {
-    if (watchDay && parseInt(watchDay) > dynamicDaysCount) {
-      setValue('birthDay', '');
-    }
-  }, [watchMonth, watchYear, dynamicDaysCount, watchDay, setValue]);
-
-  // Auth State Listener
+  // Update effect to use session
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setCurrentUser(user);
-      if (user) {
-        // Sync user to firestore
-        setDoc(doc(db, 'users', user.uid), {
-          uid: user.uid,
-          displayName: user.displayName,
-          email: user.email,
-          photoURL: user.photoURL,
-          updatedAt: serverTimestamp()
-        }, { merge: true });
+    if (session) {
+      setValue('fullName', session.fullName);
+      setValue('cedula', session.idNumber);
+      fetchHistory(session.idNumber);
+    }
+  }, [session, setValue]);
 
-        // Pre-fill form
-        if (user.displayName) setValue('fullName', user.displayName);
-        if (user.email) setValue('email', user.email);
-        
-        fetchHistory(user.uid);
-      } else {
-        setUserRegistrations([]);
-      }
-    });
-    return () => unsubscribe();
-  }, [setValue]);
-
-  const handleLogin = async () => {
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (error) {
-      console.error('Login Error:', error);
-      alert('Error al iniciar sesión con Google');
+  const handleSimpleLogin = () => {
+    if (loginForm.fullName && loginForm.idNumber) {
+      const newSession = { fullName: loginForm.fullName, idNumber: loginForm.idNumber };
+      setSession(newSession);
+      localStorage.setItem('race_session', JSON.stringify(newSession));
+      setShowLoginModal(false);
+      setLoginForm({ fullName: '', idNumber: '' });
     }
   };
 
-  const handleLogout = async () => {
-    await signOut(auth);
+  const handleLogout = () => {
+    setSession(null);
+    localStorage.removeItem('race_session');
+    setUserRegistrations([]);
+    reset();
   };
 
   const onSubmit = async (data: RegistrationFormData) => {
@@ -204,20 +190,17 @@ export default function App() {
         birthMonth: data.birthMonth,
         birthYear: data.birthYear,
         category: data.category,
-        userId: currentUser?.uid || 'anonymous',
+        userId: session?.idNumber || 'anonymous',
         createdAt: serverTimestamp(),
         // Add status for tracking
         status: 'pending'
       };
 
       // 2. Save to Firestore
-      // We wrap this in a more robust way
       try {
         await addDoc(collection(db, 'registrations'), registrationData);
       } catch (fsError) {
         console.error("Firestore Save Error:", fsError);
-        // If it fails due to permissions, it might be because the user is anonymous
-        // but the rules require auth. We'll handle this gracefully.
       }
 
       // 3. (Optional) Also send to backend if needed (legacy)
@@ -234,18 +217,21 @@ export default function App() {
         formData.append('proofOfPayment', data.proofOfPayment[0]);
       }
 
-      // We still hit the backend to handle the image upload/email if that's what it was doing
-      // In a pure Firebase app, we'd use Firebase Storage. 
-      // But keeping existing backend call for image processing.
-      await fetch('/api/register', {
+      // We still hit the backend to handle the image upload/email
+      const response = await fetch('/api/register', {
         method: 'POST',
         body: formData,
       });
 
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Error al procesar la inscripción en el servidor');
+      }
+
       setIsSubmitted(true);
       reset(); // Clear form
       setImagePreview(null);
-      if (currentUser) fetchHistory(currentUser.uid); // Refresh history
+      if (session) fetchHistory(session.idNumber); // Refresh history
     } catch (error) {
       console.error('Registration Error:', error);
       alert(error instanceof Error ? error.message : 'Error desconocido');
@@ -304,7 +290,7 @@ export default function App() {
                 { id: 'about', label: '¿Quiénes somos?', icon: Info },
                 { id: 'contact', label: 'Contacto', icon: UserIcon }
               ].map((item) => (
-                (!item.needsAuth || currentUser) && (
+                (!item.needsAuth || session) && (
                   <button
                     key={item.id}
                     onClick={() => {
@@ -324,13 +310,15 @@ export default function App() {
               ))}
 
               <div className="pt-4 mt-4 border-t border-gray-100">
-                {currentUser ? (
+                {session ? (
                   <div className="space-y-2">
                     <div className="flex items-center space-x-3 px-4 py-2">
-                      <img src={currentUser.photoURL || ''} alt="" className="w-8 h-8 rounded-full border border-gray-100" />
+                      <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-orange-500 font-bold text-xs">
+                        {session.fullName.charAt(0)}
+                      </div>
                       <div className="flex flex-col">
-                        <span className="text-[10px] font-bold text-gray-900 truncate max-w-[120px]">{currentUser.displayName}</span>
-                        <span className="text-[8px] text-gray-500 truncate max-w-[120px]">{currentUser.email}</span>
+                        <span className="text-[10px] font-bold text-gray-900 truncate max-w-[120px]">{session.fullName}</span>
+                        <span className="text-[8px] text-gray-500 truncate max-w-[120px]">ID: {session.idNumber}</span>
                       </div>
                     </div>
                     <button
@@ -338,16 +326,19 @@ export default function App() {
                       className="w-full flex items-center space-x-3 p-4 rounded-2xl font-bold text-red-500 hover:bg-red-50 transition-all"
                     >
                       <LogOut size={18} />
-                      <span>Cerrar Sesión</span>
+                      <span>Salir</span>
                     </button>
                   </div>
                 ) : (
                   <button
-                    onClick={handleLogin}
+                    onClick={() => {
+                      setShowLoginModal(true);
+                      setIsMenuOpen(false);
+                    }}
                     className="w-full flex items-center space-x-3 p-4 rounded-2xl font-bold text-gray-900 hover:bg-gray-50 transition-all"
                   >
-                    <img src="https://www.google.com/favicon.ico" className="w-4 h-4" alt="Google" />
-                    <span>Iniciar con Google</span>
+                    <UserIcon size={18} />
+                    <span>Acceder / Historial</span>
                   </button>
                 )}
               </div>
@@ -449,14 +440,14 @@ export default function App() {
                   <div className="space-y-4">
                     <div className="flex items-center justify-between mb-6">
                       <h2 className="text-2xl font-black tracking-tight">Formulario de Registro</h2>
-                      {!currentUser && (
+                      {!session && (
                         <button
                           type="button"
-                          onClick={handleLogin}
+                          onClick={() => setShowLoginModal(true)}
                           className="flex items-center space-x-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-xs font-bold hover:bg-gray-50 transition-all shadow-sm"
                         >
-                          <img src="https://www.google.com/favicon.ico" className="w-3 h-3" alt="Google" />
-                          <span>Login con Google</span>
+                          <UserIcon size={12} />
+                          <span>Acceso Rápido</span>
                         </button>
                       )}
                     </div>
@@ -714,7 +705,7 @@ export default function App() {
                   <div className="flex items-center justify-between mb-2">
                     <h2 className="text-2xl font-black tracking-tight text-gray-900">Mis Inscripciones</h2>
                     <button 
-                      onClick={() => currentUser && fetchHistory(currentUser.uid)} 
+                      onClick={() => session && fetchHistory(session.idNumber)} 
                       disabled={isLoadingHistory}
                       className="p-2 text-orange-500 hover:bg-orange-50 rounded-xl transition-all active:scale-95"
                     >
@@ -850,6 +841,80 @@ export default function App() {
           Si no recibe respuesta en las próximas 72 horas escriba al número <span className="text-orange-500">0414-2526647</span>
         </p>
       </div>
+
+      {/* LOGIN MODAL */}
+      <AnimatePresence>
+        {showLoginModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm"
+            onClick={() => setShowLoginModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl overflow-hidden p-8 space-y-6"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="w-16 h-16 bg-orange-100 rounded-3xl flex items-center justify-center text-orange-500 mb-2">
+                <UserIcon size={32} />
+              </div>
+              
+              <div className="space-y-1">
+                <h3 className="text-2xl font-black text-gray-900 leading-tight">Acceso Rápido</h3>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Vincula tu historial</p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1">Nombre Completo</label>
+                  <input 
+                    type="text" 
+                    placeholder="Tu nombre aquí"
+                    value={loginForm.fullName}
+                    onChange={e => setLoginForm({...loginForm, fullName: e.target.value})}
+                    className="w-full bg-gray-50 border-2 border-transparent focus:border-orange-500 focus:bg-white rounded-2xl p-4 text-sm font-bold transition-all outline-none"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1">Número de Cédula</label>
+                  <input 
+                    type="text" 
+                    placeholder="Ej: 12345678"
+                    value={loginForm.idNumber}
+                    onChange={e => setLoginForm({...loginForm, idNumber: e.target.value})}
+                    className="w-full bg-gray-50 border-2 border-transparent focus:border-orange-500 focus:bg-white rounded-2xl p-4 text-sm font-bold transition-all outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-3 pt-2">
+                <button
+                  onClick={handleSimpleLogin}
+                  disabled={!loginForm.fullName || !loginForm.idNumber}
+                  className="w-full bg-orange-500 text-white font-black py-5 rounded-2xl shadow-xl shadow-orange-100 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:grayscale disabled:scale-100"
+                >
+                  CONTINUAR
+                </button>
+                <button 
+                  onClick={() => setShowLoginModal(false)}
+                  className="w-full text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-gray-900 transition-colors"
+                >
+                  CANCELAR
+                </button>
+              </div>
+
+              <div className="pt-4 border-t border-gray-50 flex items-center justify-center space-x-2 text-[8px] font-bold text-gray-300 uppercase tracking-[0.2em]">
+                <CheckCircle2 size={10} />
+                <span>Seguridad Verificada</span>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
