@@ -41,18 +41,20 @@ async function startServer() {
         birthMonth,
         birthYear,
         category,
+        paymentReference,
       } = req.body;
 
       const file = req.file;
 
       if (!fullName || !email || !cedula) {
-        return res.status(400).json({ error: "Missing required fields" });
+        console.error("Missing required fields:", { fullName, email, cedula });
+        return res.status(400).json({ error: "Faltan campos requeridos en el servidor" });
       }
 
-      console.log(`New registration from ${fullName} (${email})`);
+      console.log(`New registration from ${fullName} (${email}), Ref: ${paymentReference}`);
 
       // Notification to Admin
-      console.log("Attempting to send email notification...");
+      console.log("Attempting to send email notification to johnnyaldanac@gmail.com...");
       const resendClient = getResend();
       if (resendClient) {
         try {
@@ -67,6 +69,7 @@ async function startServer() {
               <p><strong>Cédula:</strong> ${cedula}</p>
               <p><strong>Fecha de Nacimiento:</strong> ${birthDay}/${birthMonth}/${birthYear}</p>
               <p><strong>Categoría:</strong> ${category}</p>
+              <p><strong>Referencia:</strong> ${paymentReference}</p>
               <p>Se ha adjuntado el comprobante de pago.</p>
             `,
             attachments: file ? [
@@ -76,18 +79,18 @@ async function startServer() {
               }
             ] : [],
           });
-          console.log("Email sent successfully:", emailResponse);
-        } catch (emailError) {
-          console.error("Error sending email via Resend:", emailError);
+          console.log("Email result:", emailResponse);
+        } catch (emailError: any) {
+          console.error("Resend Error Detail:", emailError);
         }
       } else {
-        console.error("RESEND_API_KEY is missing in environment variables.");
+        console.warn("Skipping email: RESEND_API_KEY is missing.");
       }
 
       res.status(200).json({ success: true, message: "Registration received" });
-    } catch (error) {
-      console.error("Server error:", error);
-      res.status(500).json({ error: "Failed to process registration" });
+    } catch (error: any) {
+      console.error("Global Server error:", error);
+      res.status(500).json({ error: `Error interno del servidor: ${error.message || 'Error desconocido'}` });
     }
   });
 

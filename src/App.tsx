@@ -37,6 +37,7 @@ const registrationSchema = z.object({
   birthMonth: z.string().min(1, 'Mes requerido'),
   birthYear: z.string().min(4, 'Año requerido'),
   category: z.string().min(1, 'Debes seleccionar una categoría'),
+  paymentReference: z.string().min(1, 'La referencia de pago es requerida'),
   proofOfPayment: z.any()
     .refine((files) => files?.length > 0, "El comprobante de pago es obligatorio")
     .refine((files) => files?.[0]?.type.startsWith('image/'), "Debe ser una imagen (JPG, PNG, etc.)")
@@ -61,6 +62,53 @@ const registrationSchema = z.object({
 });
 
 type RegistrationFormData = z.infer<typeof registrationSchema>;
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 // --------------------------------------------------------------------------------
 // UTILS & CONSTANTS
@@ -190,6 +238,7 @@ export default function App() {
         birthMonth: data.birthMonth,
         birthYear: data.birthYear,
         category: data.category,
+        paymentReference: data.paymentReference,
         userId: session?.idNumber || 'anonymous',
         createdAt: serverTimestamp(),
         // Add status for tracking
@@ -200,7 +249,7 @@ export default function App() {
       try {
         await addDoc(collection(db, 'registrations'), registrationData);
       } catch (fsError) {
-        console.error("Firestore Save Error:", fsError);
+        handleFirestoreError(fsError, OperationType.CREATE, 'registrations');
       }
 
       // 3. (Optional) Also send to backend if needed (legacy)
@@ -212,6 +261,7 @@ export default function App() {
       formData.append('birthMonth', data.birthMonth);
       formData.append('birthYear', data.birthYear);
       formData.append('category', data.category);
+      formData.append('paymentReference', data.paymentReference);
       
       if (data.proofOfPayment?.[0]) {
         formData.append('proofOfPayment', data.proofOfPayment[0]);
@@ -540,6 +590,19 @@ export default function App() {
                         {APP_CONFIG.categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                       </select>
                       {errors.category && <p className="text-[10px] text-red-500 font-bold ml-1">{errors.category.message}</p>}
+                    </div>
+
+                    {/* PAYMENT REFERENCE */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-1 flex items-center gap-2">
+                        <CheckCircle2 size={12} /> Referencia Bancaria
+                      </label>
+                      <input
+                        {...register('paymentReference')}
+                        className={`w-full bg-gray-50 border-none rounded-2xl p-4 text-sm font-medium focus:ring-2 focus:ring-orange-500 transition-all ${errors.paymentReference ? 'ring-2 ring-red-400 bg-red-50' : ''}`}
+                        placeholder="Últimos 4 o 6 dígitos de la transferencia"
+                      />
+                      {errors.paymentReference && <p className="text-[10px] text-red-500 font-bold ml-1">{errors.paymentReference.message}</p>}
                     </div>
 
                     {/* PROOF OF PAYMENT */}

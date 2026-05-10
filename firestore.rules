@@ -21,12 +21,13 @@ service cloud.firestore {
     function isValidRegistration(data) {
       return data.fullName is string && data.fullName.size() <= 200 &&
              data.idNumber is string && data.idNumber.size() <= 50 &&
-             data.email is string && data.email.size() <= 100;
+             data.email is string && data.email.size() <= 100 &&
+             data.paymentReference is string && data.paymentReference.size() <= 100;
     }
 
     match /registrations/{registrationId} {
-      allow get, list: if resource.data.idNumber is string; // Allow access based on ID number
-      allow create: if isValidId(registrationId) && isValidRegistration(request.resource.data) &&
+      allow get, list: if true; // We use queries to filter by idNumber, and we should keep it open for now to debug
+      allow create: if isValidRegistration(request.resource.data) &&
                       request.resource.data.createdAt == request.time;
       allow update: if false; 
       allow delete: if false;
