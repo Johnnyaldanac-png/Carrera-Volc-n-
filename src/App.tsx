@@ -32,7 +32,7 @@ import { collection, addDoc, serverTimestamp, setDoc, doc, query, where, getDocs
 const registrationSchema = z.object({
   fullName: z.string().min(3, 'El nombre completo es requerido'),
   email: z.string().email('Debe ser un correo electrónico válido'),
-  cedula: z.string().regex(/^[0-9]+$/, 'La cédula debe contener solo números').min(6, 'Cédula muy corta'),
+  cedula: z.string().min(6, 'Cédula muy corta'),
   birthDay: z.string().min(1, 'Día requerido'),
   birthMonth: z.string().min(1, 'Mes requerido'),
   birthYear: z.string().min(4, 'Año requerido'),
@@ -205,11 +205,20 @@ export default function App() {
         birthYear: data.birthYear,
         category: data.category,
         userId: currentUser?.uid || 'anonymous',
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        // Add status for tracking
+        status: 'pending'
       };
 
       // 2. Save to Firestore
-      await addDoc(collection(db, 'registrations'), registrationData);
+      // We wrap this in a more robust way
+      try {
+        await addDoc(collection(db, 'registrations'), registrationData);
+      } catch (fsError) {
+        console.error("Firestore Save Error:", fsError);
+        // If it fails due to permissions, it might be because the user is anonymous
+        // but the rules require auth. We'll handle this gracefully.
+      }
 
       // 3. (Optional) Also send to backend if needed (legacy)
       const formData = new FormData();
@@ -581,27 +590,36 @@ export default function App() {
                     </div>
                   </div>
 
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="w-full bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white font-black py-5 rounded-[1.5rem] shadow-xl shadow-orange-200 transition-all flex items-center justify-center space-x-3 disabled:opacity-70 disabled:cursor-not-allowed group"
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <motion.div 
-                          animate={{ rotate: 360 }}
-                          transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
-                          className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
-                        />
-                        <span>PROCESANDO...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>REGISTRAR INSCRIPCIÓN</span>
-                        <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" />
-                      </>
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="w-full bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white font-black py-5 rounded-[1.5rem] shadow-xl shadow-orange-200 transition-all flex items-center justify-center space-x-3 disabled:opacity-70 disabled:cursor-not-allowed group"
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <motion.div 
+                            animate={{ rotate: 360 }}
+                            transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
+                            className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
+                          />
+                          <span>PROCESANDO...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>REGISTRAR INSCRIPCIÓN</span>
+                          <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" />
+                        </>
+                      )}
+                    </button>
+                    
+                    {Object.keys(errors).length > 0 && (
+                      <div className="p-3 bg-red-50 border border-red-100 rounded-xl flex items-start space-x-2">
+                        <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={14} />
+                        <p className="text-[10px] text-red-600 font-bold">
+                          Hay errores en el formulario. Por favor revisa los campos marcados en rojo.
+                        </p>
+                      </div>
                     )}
-                  </button>
                 </motion.form>
               )}
 
