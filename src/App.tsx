@@ -23,94 +23,68 @@ import {
   Camera,
   Sparkles,
   Maximize2,
-  X
+  X,
+  Users
 } from 'lucide-react';
 import { APP_CONFIG } from './config';
 import { AboutGallery } from './components/AboutGallery';
 import { auth, db } from './lib/firebase';
-import { collection, addDoc, serverTimestamp, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
 
 // --------------------------------------------------------------------------------
-// VALIDATION SCHEMA
+// UTILS & HELPERS
+// --------------------------------------------------------------------------------
+
+export const getAge = (day: string, month: string, year: string): number | null => {
+  if (!day || !month || !year) return null;
+  const birthDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+  if (isNaN(birthDate.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+  return age;
+};
+
+export const getCategoryByAge = (age: number | null): string => {
+  if (age === null || isNaN(age)) return '';
+  if (age < 5) return `Menor de 5 años (${age} años)`;
+  if (age <= 11) return `Infantil / Semillero (5-11 años)`;
+  if (age <= 15) return `Juvenil (12-15 años)`;
+  if (age <= 29) return `Libre (16-29 años)`;
+  if (age <= 39) return `Sub-Master (30-39 años)`;
+  if (age <= 49) return `Master A (40-49 años)`;
+  if (age <= 59) return `Master B (50-59 años)`;
+  return `Master C (60+ años)`;
+};
+
+// --------------------------------------------------------------------------------
+// VALIDATION SCHEMA (A PARTIR DE 5 AÑOS)
 // --------------------------------------------------------------------------------
 
 const registrationSchema = z.object({
   fullName: z.string().min(3, 'El nombre completo es requerido'),
   email: z.string().email('Debe ser un correo electrónico válido'),
-  cedula: z.string().min(6, 'Cédula muy corta'),
+  cedula: z.string().min(6, 'Cédula muy corta (mínimo 6 caracteres)'),
   birthDay: z.string().min(1, 'Día requerido'),
   birthMonth: z.string().min(1, 'Mes requerido'),
   birthYear: z.string().min(4, 'Año requerido'),
 }).refine((data) => {
   if (!data.birthDay || !data.birthMonth || !data.birthYear) return true;
-  
-  const birthDate = new Date(parseInt(data.birthYear), parseInt(data.birthMonth) - 1, parseInt(data.birthDay));
-  const today = new Date();
-  
-  let age = today.getFullYear() - birthDate.getFullYear();
-  const monthDiff = today.getMonth() - birthDate.getMonth();
-  
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-    age--;
-  }
-  
-  return age >= 16;
+  const age = getAge(data.birthDay, data.birthMonth, data.birthYear);
+  if (age === null) return true;
+  return age >= 5;
 }, {
-  message: "Debes tener al menos 16 años para participar",
+  message: "La inscripción está permitida a partir de los 5 años de edad en adelante",
   path: ["birthYear"]
 });
 
 type RegistrationFormData = z.infer<typeof registrationSchema>;
 
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId?: string | null;
-    email?: string | null;
-    emailVerified?: boolean | null;
-    isAnonymous?: boolean | null;
-    tenantId?: string | null;
-    providerInfo?: {
-      providerId?: string | null;
-      email?: string | null;
-    }[];
-  }
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData?.map(provider => ({
-        providerId: provider.providerId,
-        email: provider.email,
-      })) || []
-    },
-    operationType,
-    path
-  };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
-}
-
 // --------------------------------------------------------------------------------
-// UTILS & CONSTANTS
+// DATES CONSTANTS
 // --------------------------------------------------------------------------------
 
 const months = [
@@ -128,7 +102,7 @@ const months = [
   { value: '12', label: 'Diciembre' },
 ];
 const currentYear = new Date().getFullYear();
-const years = Array.from({ length: 100 }, (_, i) => (currentYear - 100 + i + 1).toString()).reverse();
+const years = Array.from({ length: 95 }, (_, i) => (currentYear - i).toString());
 
 // --------------------------------------------------------------------------------
 // MAIN COMPONENT
@@ -144,6 +118,13 @@ export default function App() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [lastRegistered, setLastRegistered] = useState<{
+    fullName: string;
+    email: string;
+    cedula: string;
+    category: string;
+    age: number;
+  } | null>(null);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<'register' | 'about' | 'contact' | 'history'>('register');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -162,6 +143,13 @@ export default function App() {
     resolver: zodResolver(registrationSchema)
   });
 
+  const watchDay = watch('birthDay');
+  const watchMonth = watch('birthMonth');
+  const watchYear = watch('birthYear');
+
+  const currentCalculatedAge = getAge(watchDay, watchMonth, watchYear);
+  const currentCategory = getCategoryByAge(currentCalculatedAge);
+
   // Fetch History by ID Number
   const fetchHistory = async (idNumber: string) => {
     setIsLoadingHistory(true);
@@ -175,7 +163,7 @@ export default function App() {
         id: doc.id,
         ...doc.data()
       }));
-      // Safe client-side sorting avoiding Firestore composite index requirement
+      // Safe client-side sorting
       regs.sort((a: any, b: any) => {
         const timeA = a.createdAt?.seconds ? a.createdAt.seconds * 1000 : (new Date(a.createdAt || 0).getTime() || 0);
         const timeB = b.createdAt?.seconds ? b.createdAt.seconds * 1000 : (new Date(b.createdAt || 0).getTime() || 0);
@@ -188,9 +176,6 @@ export default function App() {
       setIsLoadingHistory(false);
     }
   };
-
-  const watchMonth = watch('birthMonth');
-  const watchYear = watch('birthYear');
 
   // Calculate days based on month and year
   const getDaysInMonth = (month: string, year: string) => {
@@ -234,6 +219,9 @@ export default function App() {
     setSubmissionError(null);
     
     try {
+      const calculatedAge = getAge(data.birthDay, data.birthMonth, data.birthYear) || 0;
+      const category = getCategoryByAge(calculatedAge);
+
       // 1. Prepare data for Firestore
       const registrationData = {
         fullName: data.fullName.trim(),
@@ -242,6 +230,8 @@ export default function App() {
         birthDay: data.birthDay,
         birthMonth: data.birthMonth,
         birthYear: data.birthYear,
+        age: calculatedAge,
+        category: category,
         userId: session?.idNumber || 'anonymous',
         createdAt: serverTimestamp(),
         status: 'registered'
@@ -268,7 +258,7 @@ export default function App() {
         console.warn('Local backup note:', storageErr);
       }
 
-      // 3. Send email confirmation through server endpoint (non-blocking)
+      // 3. Send email confirmation through server endpoint
       try {
         await fetch('/api/register', {
           method: 'POST',
@@ -287,6 +277,14 @@ export default function App() {
       } catch (apiError) {
         console.warn('Email notification notice:', apiError);
       }
+
+      setLastRegistered({
+        fullName: data.fullName.trim(),
+        email: data.email.trim().toLowerCase(),
+        cedula: data.cedula.trim(),
+        category,
+        age: calculatedAge
+      });
 
       setIsSubmitted(true);
       reset();
@@ -497,7 +495,7 @@ export default function App() {
           <header>
             <div className="inline-flex items-center space-x-2 px-3 py-1 bg-orange-100 text-orange-600 rounded-full text-xs font-bold uppercase tracking-wider mb-4">
               <Trophy size={14} />
-              <span>Inscripciones Abiertas</span>
+              <span>Inscripciones Abiertas • A partir de 5 años</span>
             </div>
             <h1 className="text-5xl md:text-6xl font-black text-[#1a1a1a] leading-[0.9] tracking-tighter mb-2">
               {APP_CONFIG.raceName.split(' ').map((word, i) => (
@@ -508,12 +506,12 @@ export default function App() {
               new era
             </p>
             <p className="text-gray-500 font-medium max-w-sm">
-              Únete a la experiencia de running más grande del año. Completa tus datos para registrar tu participación.
+              Únete a la gran fiesta de running y trail en Caracas. Abierto para atletas y niños desde los 5 años en adelante.
             </p>
           </header>
 
           {/* EVENT DETAILS BOX */}
-          <section className="bg-white p-6 rounded-3xl border border-gray-100 shadow-xl shadow-gray-200/50 relative overflow-hidden">
+          <section className="bg-white p-6 rounded-3xl border border-gray-100 shadow-xl shadow-gray-200/50 relative overflow-hidden text-left">
             <div className="absolute top-0 right-0 w-32 h-32 bg-orange-50 rounded-full -mr-16 -mt-16 opacity-50" />
             <h3 className="text-lg font-bold flex items-center space-x-2 mb-4 relative z-10">
               <Trophy className="text-orange-500" />
@@ -529,6 +527,7 @@ export default function App() {
                   <span className="text-sm font-bold text-gray-800">{APP_CONFIG.eventInfo.location}</span>
                 </div>
               </div>
+
               <div className="flex items-start space-x-3">
                 <div className="p-2 bg-orange-50 text-orange-500 rounded-xl">
                   <Trophy size={16} />
@@ -538,14 +537,39 @@ export default function App() {
                   <span className="text-sm font-bold text-gray-800">{APP_CONFIG.eventInfo.distance}</span>
                 </div>
               </div>
-              <div className="pt-2 flex items-start space-x-2 text-xs text-orange-700 bg-orange-50 p-3 rounded-xl border border-orange-100">
-                <Info size={14} className="mt-0.5 shrink-0" />
-                <p>Completa el formulario con tus datos personales para asegurar tu número de corredor.</p>
+
+              <div className="flex items-start space-x-3">
+                <div className="p-2 bg-orange-50 text-orange-500 rounded-xl">
+                  <Users size={16} />
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-[10px] uppercase font-bold text-gray-400 tracking-widest">Edades Permitidas</span>
+                  <span className="text-sm font-bold text-gray-800">Desde los 5 años en adelante</span>
+                </div>
+              </div>
+
+              {/* CATEGORIES PILLS */}
+              <div className="pt-2">
+                <span className="text-[10px] uppercase font-bold text-gray-400 tracking-widest block mb-2">Categorías Oficiales</span>
+                <div className="flex flex-wrap gap-1.5">
+                  <span className="px-2 py-1 bg-orange-50 text-orange-800 rounded-lg text-[11px] font-bold border border-orange-100">
+                    🌱 Infantil (5-11 años)
+                  </span>
+                  <span className="px-2 py-1 bg-amber-50 text-amber-800 rounded-lg text-[11px] font-bold border border-amber-100">
+                    ⚡ Juvenil (12-15 años)
+                  </span>
+                  <span className="px-2 py-1 bg-emerald-50 text-emerald-800 rounded-lg text-[11px] font-bold border border-emerald-100">
+                    🔥 Libre (16-29 años)
+                  </span>
+                  <span className="px-2 py-1 bg-blue-50 text-blue-800 rounded-lg text-[11px] font-bold border border-blue-100">
+                    🏅 Master (30+ años)
+                  </span>
+                </div>
               </div>
             </div>
           </section>
 
-          <footer className="hidden lg:block pt-4">
+          <footer className="hidden lg:block pt-4 text-left">
             <div className="flex items-center space-x-4 opacity-30 grayscale hover:grayscale-0 transition-all">
               <div className="h-[1px] flex-1 bg-gray-300" />
               <span className="text-[10px] font-bold uppercase tracking-widest">Desafío El Volcán</span>
@@ -570,11 +594,14 @@ export default function App() {
                   exit={{ opacity: 0, y: -12, scale: 0.99 }}
                   transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
                   onSubmit={handleSubmit(onSubmit)}
-                  className="space-y-6"
+                  className="space-y-6 text-left"
                 >
                   <div className="space-y-4">
                     <div className="flex items-center justify-between mb-6">
-                      <h2 className="text-2xl font-black tracking-tight">Formulario de Registro</h2>
+                      <div>
+                        <h2 className="text-2xl font-black tracking-tight">Formulario de Registro</h2>
+                        <p className="text-xs text-gray-500 font-medium mt-0.5">Inscripción habilitada desde los 5 años en adelante.</p>
+                      </div>
                       {!session && (
                         <button
                           type="button"
@@ -590,12 +617,12 @@ export default function App() {
                     {/* FULL NAME */}
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-1 flex items-center gap-2">
-                        <UserIcon size={12} /> Nombre Completo
+                        <UserIcon size={12} /> Nombre Completo del Atleta
                       </label>
                       <input
                         {...register('fullName')}
                         className={`w-full bg-gray-50 border-none rounded-2xl p-4 text-sm font-medium focus:ring-2 focus:ring-orange-500 transition-all ${errors.fullName ? 'ring-2 ring-red-400 bg-red-50' : ''}`}
-                        placeholder="Juan Pérez"
+                        placeholder="Ej. Johnny Aldana"
                       />
                       {errors.fullName && <p className="text-[10px] text-red-500 font-bold ml-1">{errors.fullName.message}</p>}
                     </div>
@@ -603,7 +630,7 @@ export default function App() {
                     {/* EMAIL */}
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-1 flex items-center gap-2">
-                        <Mail size={12} /> Correo Electrónico
+                        <Mail size={12} /> Correo Electrónico (Para confirmación)
                       </label>
                       <input
                         {...register('email')}
@@ -617,7 +644,7 @@ export default function App() {
                     {/* CEDULA */}
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-1 flex items-center gap-2">
-                        <CreditCard size={12} /> Cédula de Identidad
+                        <CreditCard size={12} /> Cédula o Documento de Identidad
                       </label>
                       <input
                         {...register('cedula')}
@@ -629,8 +656,13 @@ export default function App() {
 
                     {/* BIRTH DATE */}
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-1 flex items-center gap-2">
-                        <Calendar size={12} /> Fecha de Nacimiento
+                      <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-1 flex items-center justify-between">
+                        <span className="flex items-center gap-2">
+                          <Calendar size={12} /> Fecha de Nacimiento
+                        </span>
+                        <span className="text-[10px] font-black text-orange-600 lowercase tracking-normal">
+                          (desde 5 años)
+                        </span>
                       </label>
                       <div className="grid grid-cols-3 gap-2">
                         <select
@@ -655,6 +687,26 @@ export default function App() {
                           {years.map(y => <option key={y} value={y}>{y}</option>)}
                         </select>
                       </div>
+
+                      {/* DYNAMIC CATEGORY PREVIEW */}
+                      {currentCalculatedAge !== null && !isNaN(currentCalculatedAge) && (
+                        <div className={`mt-2 p-3 rounded-2xl flex items-center justify-between border ${
+                          currentCalculatedAge >= 5 
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-900' 
+                            : 'bg-amber-50 border-amber-200 text-amber-900'
+                        }`}>
+                          <div className="flex items-center gap-2">
+                            <Sparkles size={15} className={currentCalculatedAge >= 5 ? 'text-emerald-600' : 'text-amber-600'} />
+                            <span className="text-xs font-black">
+                              {currentCalculatedAge >= 5 ? `Categoría: ${currentCategory}` : 'Edad menor a 5 años'}
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-white shadow-sm">
+                            {currentCalculatedAge} años
+                          </span>
+                        </div>
+                      )}
+
                       {(errors.birthDay || errors.birthMonth || errors.birthYear) && (
                         <p className="text-[10px] text-red-500 font-bold ml-1">
                           {errors.birthYear?.message || errors.birthDay?.message || errors.birthMonth?.message || "Fecha incompleta"}
@@ -675,7 +727,7 @@ export default function App() {
                           transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
                           className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
                         />
-                        <span>PROCESANDO...</span>
+                        <span>PROCESANDO INSCRIPCIÓN...</span>
                       </>
                     ) : (
                       <>
@@ -712,24 +764,51 @@ export default function App() {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: -12 }}
                   transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-                  className="flex flex-col items-center justify-center flex-1 text-center space-y-6 py-10"
+                  className="flex flex-col items-center justify-center flex-1 text-center space-y-6 py-8"
                 >
-                  <div className="w-24 h-24 bg-green-100 text-green-500 rounded-full flex items-center justify-center shadow-inner">
-                    <CheckCircle2 size={48} />
+                  <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center shadow-inner">
+                    <CheckCircle2 size={42} />
                   </div>
                   <div>
-                    <h2 className="text-3xl font-black tracking-tight mb-2">¡Inscripción Recibida!</h2>
-                    <p className="text-gray-500 max-w-sm mx-auto mb-4">
-                      Tu registro ha sido enviado con éxito. Te esperamos en la línea de salida del Desafío El Volcán.
+                    <h2 className="text-3xl font-black tracking-tight mb-2">¡Inscripción Confirmada!</h2>
+                    <p className="text-gray-600 max-w-sm mx-auto mb-4 text-sm font-medium">
+                      Tu registro ha sido guardado exitosamente. Te esperamos en la línea de salida del Desafío El Volcán.
                     </p>
-                    <div className="bg-orange-50 p-6 rounded-3xl border border-orange-100 mb-6">
-                      <p className="text-orange-700 font-bold text-sm">
-                        Si tienes alguna duda o consulta, puedes escribir al <span className="whitespace-nowrap">0414-2526647</span>
+
+                    {lastRegistered && (
+                      <div className="bg-orange-50/80 p-5 rounded-3xl border border-orange-100 text-left space-y-2 mb-4 text-xs">
+                        <div className="flex justify-between border-b border-orange-200/50 pb-1.5">
+                          <span className="font-bold text-orange-900">Atleta:</span>
+                          <span className="font-black text-gray-900">{lastRegistered.fullName}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-orange-200/50 pb-1.5">
+                          <span className="font-bold text-orange-900">Cédula:</span>
+                          <span className="font-bold text-gray-800">{lastRegistered.cedula}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-orange-200/50 pb-1.5">
+                          <span className="font-bold text-orange-900">Categoría:</span>
+                          <span className="font-black text-orange-600">{lastRegistered.category}</span>
+                        </div>
+                        <div className="flex justify-between pt-0.5">
+                          <span className="font-bold text-orange-900">Correo:</span>
+                          <span className="font-medium text-gray-700">{lastRegistered.email}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-200 mb-6 text-xs text-emerald-900 font-bold flex items-center gap-2 text-left">
+                      <Mail size={16} className="text-emerald-600 shrink-0" />
+                      <span>Se envió el comprobante al correo y la notificación a la organización.</span>
+                    </div>
+
+                    <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200 mb-6">
+                      <p className="text-gray-700 font-bold text-xs">
+                        Dudas o consultas directas: <a href="https://wa.me/584142526647" target="_blank" rel="noreferrer" className="text-emerald-600 underline font-black">WhatsApp 0414-2526647</a>
                       </p>
                     </div>
 
                     {/* SOCIAL SHARING */}
-                    <div className="space-y-4">
+                    <div className="space-y-3">
                       <p className="text-[10px] uppercase font-bold text-gray-400 tracking-widest">¡Comparte con tus amigos!</p>
                       <div className="flex items-center justify-center space-x-3">
                         <a 
@@ -739,7 +818,7 @@ export default function App() {
                           className="p-3 bg-blue-600 text-white rounded-2xl hover:scale-110 transition-transform shadow-lg shadow-blue-200"
                           title="Compartir en Facebook"
                         >
-                          <Facebook size={20} />
+                          <Facebook size={18} />
                         </a>
                         <a 
                           href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(window.location.origin)}&text=${encodeURIComponent('¡Me acabo de inscribir en el Desafío El Volcán! Únete a la carrera aquí:')}`}
@@ -748,16 +827,16 @@ export default function App() {
                           className="p-3 bg-black text-white rounded-2xl hover:scale-110 transition-transform shadow-lg shadow-gray-200"
                           title="Compartir en X (Twitter)"
                         >
-                          <Twitter size={20} />
+                          <Twitter size={18} />
                         </a>
                         <a 
                           href={`https://wa.me/?text=${encodeURIComponent('¡Me acabo de inscribir en el Desafío El Volcán! Únete a la carrera aquí: ' + window.location.origin)}`}
                           target="_blank"
                           rel="noreferrer"
-                          className="p-3 bg-green-500 text-white rounded-2xl hover:scale-110 transition-transform shadow-lg shadow-green-200"
+                          className="p-3 bg-emerald-500 text-white rounded-2xl hover:scale-110 transition-transform shadow-lg shadow-emerald-200"
                           title="Compartir en WhatsApp"
                         >
-                          <MessageCircle size={20} />
+                          <MessageCircle size={18} />
                         </a>
                         <button 
                           onClick={() => {
@@ -773,16 +852,16 @@ export default function App() {
                           className="p-3 bg-orange-100 text-orange-600 rounded-2xl hover:scale-110 transition-transform"
                           title="Más opciones de compartido"
                         >
-                          <Share2 size={20} />
+                          <Share2 size={18} />
                         </button>
                       </div>
                     </div>
                   </div>
                   <button 
                     onClick={() => setIsSubmitted(false)}
-                    className="text-orange-500 font-bold hover:underline"
+                    className="text-orange-500 font-bold hover:underline text-sm"
                   >
-                    Registrar a otra persona
+                    Registrar a otro participante
                   </button>
                 </motion.div>
               )}
@@ -794,10 +873,13 @@ export default function App() {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -12, scale: 0.99 }}
                   transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-                  className="space-y-6 py-4"
+                  className="space-y-6 py-4 text-left"
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <h2 className="text-2xl font-black tracking-tight text-gray-900">Mis Inscripciones</h2>
+                    <div>
+                      <h2 className="text-2xl font-black tracking-tight text-gray-900">Mis Inscripciones</h2>
+                      <p className="text-xs text-gray-500 font-medium">Registros asociados al documento {session?.idNumber}</p>
+                    </div>
                     <button 
                       onClick={() => session && fetchHistory(session.idNumber)} 
                       disabled={isLoadingHistory}
@@ -818,102 +900,117 @@ export default function App() {
                     <div className="space-y-4">
                       {userRegistrations.map((reg) => (
                         <div key={reg.id} className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-xl shadow-gray-200/50 relative overflow-hidden group">
-                          <div className="absolute top-0 right-0 w-32 h-32 bg-orange-50 rounded-full -mr-16 -mt-16 opacity-0 group-hover:opacity-50 transition-opacity" />
-                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10 text-left">
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <span className="px-3 py-1 bg-orange-100 text-orange-600 rounded-lg text-[10px] font-black uppercase tracking-widest">
-                                  Inscrito
-                                </span>
-                                <span className="text-[10px] font-bold text-gray-400">
-                                  {reg.createdAt?.toDate ? reg.createdAt.toDate().toLocaleDateString('es-VE') : 'Reciente'}
-                                </span>
-                              </div>
-                              <h4 className="text-xl font-black text-gray-900 capitalize">{reg.fullName}</h4>
-                              <p className="text-xs font-bold text-gray-500">{reg.idNumber}</p>
-                              <p className="text-xs text-gray-400">{reg.email}</p>
+                          <div className="flex justify-between items-start mb-4">
+                            <div>
+                              <span className="text-[10px] font-black uppercase tracking-wider bg-orange-100 text-orange-600 px-3 py-1 rounded-full">
+                                {reg.category || 'Atleta Confirmado'}
+                              </span>
+                              <h3 className="text-lg font-black text-gray-900 mt-2">{reg.fullName}</h3>
+                              <p className="text-xs text-gray-500 font-bold mt-0.5">Cédula: {reg.idNumber}</p>
                             </div>
-                            <div className="flex items-center space-x-3">
-                              <div className="flex flex-col items-end">
-                                <div className="flex items-center space-x-1.5 text-green-500 font-bold text-xs">
-                                  <CheckCircle2 size={12} />
-                                  <span>Confirmado</span>
-                                </div>
-                              </div>
-                              <ChevronRight className="text-gray-300" />
+                            <div className="text-right">
+                              <span className="text-xs font-black text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100">
+                                Inscrito
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 text-xs bg-gray-50 p-3.5 rounded-2xl text-gray-600">
+                            <div>
+                              <span className="text-[9px] font-bold uppercase text-gray-400 block">Nacimiento</span>
+                              <span className="font-black text-gray-800">{reg.birthDay}/{reg.birthMonth}/{reg.birthYear}</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] font-bold uppercase text-gray-400 block">Correo</span>
+                              <span className="font-semibold text-gray-800 truncate block">{reg.email}</span>
                             </div>
                           </div>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <div className="bg-gray-50 py-16 rounded-[3rem] border-2 border-dashed border-gray-200 flex flex-col items-center text-center px-6">
-                      <div className="w-16 h-16 bg-white rounded-3xl flex items-center justify-center text-gray-200 mb-4 shadow-sm">
-                        <Trophy size={32} />
+                    <div className="text-center py-16 bg-gray-50 rounded-3xl border border-gray-100 p-8">
+                      <div className="w-14 h-14 bg-orange-100 text-orange-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                        <Trophy size={24} />
                       </div>
-                      <h3 className="text-lg font-black text-gray-900 mb-1">Sin inscripciones</h3>
-                      <p className="text-gray-400 text-xs font-medium max-w-[200px] mb-6">
-                        Aún no has registrado ninguna participación para este evento.
+                      <h4 className="text-base font-black text-gray-900">No hay inscripciones registradas</h4>
+                      <p className="text-xs text-gray-500 mt-1 max-w-xs mx-auto">
+                        Aún no tienes registros vinculados a esta cédula.
                       </p>
-                      <button 
+                      <button
                         onClick={() => setCurrentView('register')}
-                        className="px-6 py-3 bg-orange-500 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-orange-100 hover:scale-105 active:scale-95 transition-all"
+                        className="mt-4 px-5 py-2.5 bg-orange-500 text-white font-bold rounded-xl text-xs hover:bg-orange-600 transition-all shadow-md"
                       >
-                        Inscribirme Ahora
+                        Inscribirse Ahora
                       </button>
                     </div>
                   )}
                 </motion.div>
               )}
 
-                {/* CONTACT VIEW */}
-                {currentView === 'contact' && (
-                  <motion.div 
-                    key="contact-view"
-                    initial={{ opacity: 0, y: 14, scale: 0.99 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -12, scale: 0.99 }}
-                    transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-                    className="space-y-8 py-4 px-2"
-                  >
-                    <h2 className="text-4xl font-black">Contacto</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="bg-orange-50 p-8 rounded-[2rem] border border-orange-100 flex flex-col items-center text-center space-y-4">
-                        <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center text-orange-500">
-                          <AlertCircle size={32} />
-                        </div>
-                        <div>
-                          <h4 className="font-black text-orange-900">WhatsApp / Soporte</h4>
-                          <p className="text-orange-700 font-bold mt-1">0414-2526647</p>
-                        </div>
-                      </div>
-                      <div className="bg-gray-50 p-8 rounded-[2rem] border border-gray-100 flex flex-col items-center text-center space-y-4">
-                        <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center text-gray-400">
-                           <UserIcon size={32} />
-                        </div>
-                        <div>
-                          <h4 className="font-black text-gray-900">Correo Electrónico</h4>
-                          <p className="text-gray-500 font-bold mt-1">{APP_CONFIG.adminEmail}</p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="p-8 bg-white border border-gray-100 rounded-3xl shadow-sm text-center">
-                      <p className="text-gray-500">Estamos disponibles para resolver cualquier duda sobre tu inscripción.</p>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </motion.div>
-        </div>
-      )}
+              {currentView === 'contact' && (
+                <motion.div
+                  key="contact-view"
+                  initial={{ opacity: 0, y: 14, scale: 0.99 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -12, scale: 0.99 }}
+                  transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                  className="space-y-6 py-4 text-left"
+                >
+                  <div className="mb-4">
+                    <h2 className="text-2xl font-black tracking-tight text-gray-900">Contacto & Organización</h2>
+                    <p className="text-xs text-gray-500 font-medium">Estamos a tu disposición para cualquier información</p>
+                  </div>
 
-      {/* GLOBAL FOOTER MESSAGE */}
-      <div className="max-w-4xl mx-auto text-center py-8">
-        <p className="text-gray-400 text-xs font-bold uppercase tracking-widest">
-          Si no recibe respuesta en las próximas 72 horas escriba al número <span className="text-orange-500">0414-2526647</span>
-        </p>
+                  <div className="space-y-4">
+                    <div className="p-5 bg-emerald-50 rounded-2xl border border-emerald-200 flex items-start gap-4">
+                      <div className="w-10 h-10 bg-emerald-500 text-white rounded-xl flex items-center justify-center shrink-0 shadow-md">
+                        <MessageCircle size={20} />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-black text-emerald-950">WhatsApp de Atención</h4>
+                        <p className="text-xs text-emerald-800 mt-0.5">Consultas de atletas, grupos e inscripciones:</p>
+                        <a 
+                          href="https://wa.me/584142526647" 
+                          target="_blank" 
+                          rel="noreferrer"
+                          className="inline-block mt-2 font-black text-sm text-emerald-700 bg-white px-3 py-1.5 rounded-lg border border-emerald-300 shadow-sm"
+                        >
+                          +58 414-2526647
+                        </a>
+                      </div>
+                    </div>
+
+                    <div className="p-5 bg-orange-50 rounded-2xl border border-orange-200 flex items-start gap-4">
+                      <div className="w-10 h-10 bg-orange-500 text-white rounded-xl flex items-center justify-center shrink-0 shadow-md">
+                        <Mail size={20} />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-black text-orange-950">Correo Oficial</h4>
+                        <p className="text-xs text-orange-800 mt-0.5">Contacto institucional y marcas aliadas:</p>
+                        <a 
+                          href={`mailto:${APP_CONFIG.adminEmail}`}
+                          className="inline-block mt-2 font-bold text-xs text-orange-700 bg-white px-3 py-1.5 rounded-lg border border-orange-300 shadow-sm"
+                        >
+                          {APP_CONFIG.adminEmail}
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setCurrentView('register')}
+                    className="w-full py-4 bg-gray-900 text-white font-bold rounded-2xl text-xs hover:bg-black transition-all"
+                  >
+                    Volver al Formulario
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </motion.div>
       </div>
+      )}
 
       {/* LOGIN MODAL */}
       <AnimatePresence>
@@ -922,111 +1019,95 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm"
-            onClick={() => setShowLoginModal(false)}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
           >
             <motion.div
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl overflow-hidden p-8 space-y-6"
-              onClick={e => e.stopPropagation()}
+              initial={{ scale: 0.95, y: 10 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 10 }}
+              className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl space-y-6 text-left"
             >
-              <div className="w-16 h-16 bg-orange-100 rounded-3xl flex items-center justify-center text-orange-500 mb-2">
-                <UserIcon size={32} />
-              </div>
-              
-              <div className="space-y-1">
-                <h3 className="text-2xl font-black text-gray-900 leading-tight">Acceso Rápido</h3>
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Vincula tu historial</p>
+              <div className="flex justify-between items-center">
+                <h3 className="text-xl font-black text-gray-900">Acceso Rápido</h3>
+                <button 
+                  onClick={() => setShowLoginModal(false)}
+                  className="p-2 text-gray-400 hover:text-gray-600 rounded-full"
+                >
+                  <X size={20} />
+                </button>
               </div>
 
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1">Nombre Completo</label>
-                  <input 
-                    type="text" 
-                    placeholder="Tu nombre aquí"
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">Nombre Completo</label>
+                  <input
                     value={loginForm.fullName}
-                    onChange={e => setLoginForm({...loginForm, fullName: e.target.value})}
-                    className="w-full bg-gray-50 border-2 border-transparent focus:border-orange-500 focus:bg-white rounded-2xl p-4 text-sm font-bold transition-all outline-none"
+                    onChange={(e) => setLoginForm(prev => ({ ...prev, fullName: e.target.value }))}
+                    className="w-full bg-gray-50 border-none rounded-2xl p-4 text-sm font-medium focus:ring-2 focus:ring-orange-500"
+                    placeholder="Ej. Johnny Aldana"
                   />
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1">Número de Cédula</label>
-                  <input 
-                    type="text" 
-                    placeholder="Ej: 12345678"
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">Cédula de Identidad</label>
+                  <input
                     value={loginForm.idNumber}
-                    onChange={e => setLoginForm({...loginForm, idNumber: e.target.value})}
-                    className="w-full bg-gray-50 border-2 border-transparent focus:border-orange-500 focus:bg-white rounded-2xl p-4 text-sm font-bold transition-all outline-none"
+                    onChange={(e) => setLoginForm(prev => ({ ...prev, idNumber: e.target.value }))}
+                    className="w-full bg-gray-50 border-none rounded-2xl p-4 text-sm font-medium focus:ring-2 focus:ring-orange-500"
+                    placeholder="Ej. V-25667889"
                   />
                 </div>
               </div>
 
-              <div className="space-y-3 pt-2">
-                <button
-                  onClick={handleSimpleLogin}
-                  disabled={!loginForm.fullName || !loginForm.idNumber}
-                  className="w-full bg-orange-500 text-white font-black py-5 rounded-2xl shadow-xl shadow-orange-100 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:grayscale disabled:scale-100"
-                >
-                  CONTINUAR
-                </button>
-                <button 
-                  onClick={() => setShowLoginModal(false)}
-                  className="w-full text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-gray-900 transition-colors"
-                >
-                  CANCELAR
-                </button>
-              </div>
-
-              <div className="pt-4 border-t border-gray-50 flex items-center justify-center space-x-2 text-[8px] font-bold text-gray-300 uppercase tracking-[0.2em]">
-                <CheckCircle2 size={10} />
-                <span>Seguridad Verificada</span>
-              </div>
+              <button
+                onClick={handleSimpleLogin}
+                className="w-full py-4 bg-orange-500 text-white font-black rounded-2xl hover:bg-orange-600 transition-all text-xs uppercase tracking-wider shadow-lg shadow-orange-200"
+              >
+                Continuar
+              </button>
             </motion.div>
           </motion.div>
         )}
+      </AnimatePresence>
 
-        {/* IMAGE PREVIEW LIGHTBOX MODAL */}
+      {/* FULLSCREEN IMAGE LIGHTBOX */}
+      <AnimatePresence>
         {selectedImage && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6 bg-black/85 backdrop-blur-md"
+            className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6"
             onClick={() => setSelectedImage(null)}
           >
             <motion.div
-              initial={{ scale: 0.92, opacity: 0 }}
+              initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.92, opacity: 0 }}
-              transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-              className="relative max-w-4xl w-full bg-gray-950 rounded-[2rem] overflow-hidden shadow-2xl border border-white/10 flex flex-col"
-              onClick={e => e.stopPropagation()}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative max-w-4xl max-h-[90vh] w-full flex flex-col items-center"
+              onClick={(e) => e.stopPropagation()}
             >
               <button
                 type="button"
                 onClick={() => setSelectedImage(null)}
-                className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center transition-all backdrop-blur-sm"
+                className="absolute -top-12 right-0 sm:top-4 sm:right-4 bg-white/20 hover:bg-white/40 text-white p-2 rounded-full backdrop-blur-sm transition-all z-10"
               >
                 <X size={20} />
               </button>
 
-              <div className="w-full max-h-[70vh] flex items-center justify-center bg-black">
+              <div className="w-full max-h-[75vh] flex items-center justify-center overflow-hidden rounded-3xl bg-black">
                 <img
                   src={selectedImage.src}
                   alt={selectedImage.caption}
                   referrerPolicy="no-referrer"
-                  className="max-h-[70vh] w-auto max-w-full object-contain"
+                  className="max-h-[75vh] w-auto object-contain rounded-2xl"
                 />
               </div>
 
-              <div className="p-6 bg-gradient-to-t from-gray-950 to-gray-900 border-t border-white/10 space-y-2 text-left">
-                <span className="inline-block px-3 py-1 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-full text-[10px] font-black uppercase tracking-wider">
+              <div className="w-full bg-black/60 backdrop-blur-md p-4 mt-3 rounded-2xl text-white text-center">
+                <span className="inline-block px-2.5 py-0.5 bg-orange-500 text-white text-[10px] font-black uppercase rounded-full mb-1">
                   {selectedImage.tag}
                 </span>
-                <p className="text-sm md:text-base text-gray-200 font-medium">
+                <p className="text-sm font-bold text-gray-200">
                   {selectedImage.caption}
                 </p>
               </div>
