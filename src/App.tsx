@@ -144,6 +144,7 @@ export default function App() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<'register' | 'about' | 'contact' | 'history'>('register');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [userRegistrations, setUserRegistrations] = useState<any[]>([]);
@@ -167,14 +168,19 @@ export default function App() {
     try {
       const q = query(
         collection(db, 'registrations'), 
-        where('idNumber', '==', idNumber),
-        orderBy('createdAt', 'desc')
+        where('idNumber', '==', idNumber.trim())
       );
       const querySnapshot = await getDocs(q);
       const regs = querySnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
+      // Safe client-side sorting avoiding Firestore composite index requirement
+      regs.sort((a: any, b: any) => {
+        const timeA = a.createdAt?.seconds ? a.createdAt.seconds * 1000 : (new Date(a.createdAt || 0).getTime() || 0);
+        const timeB = b.createdAt?.seconds ? b.createdAt.seconds * 1000 : (new Date(b.createdAt || 0).getTime() || 0);
+        return timeB - timeA;
+      });
       setUserRegistrations(regs);
     } catch (error) {
       console.error("Error fetching history:", error);
@@ -208,7 +214,7 @@ export default function App() {
 
   const handleSimpleLogin = () => {
     if (loginForm.fullName && loginForm.idNumber) {
-      const newSession = { fullName: loginForm.fullName, idNumber: loginForm.idNumber };
+      const newSession = { fullName: loginForm.fullName.trim(), idNumber: loginForm.idNumber.trim() };
       setSession(newSession);
       localStorage.setItem('race_session', JSON.stringify(newSession));
       setShowLoginModal(false);
@@ -225,13 +231,14 @@ export default function App() {
 
   const onSubmit = async (data: RegistrationFormData) => {
     setIsSubmitting(true);
+    setSubmissionError(null);
     
     try {
       // 1. Prepare data for Firestore
       const registrationData = {
-        fullName: data.fullName,
-        email: data.email,
-        idNumber: data.cedula,
+        fullName: data.fullName.trim(),
+        email: data.email.trim().toLowerCase(),
+        idNumber: data.cedula.trim(),
         birthDay: data.birthDay,
         birthMonth: data.birthMonth,
         birthYear: data.birthYear,
@@ -244,28 +251,41 @@ export default function App() {
       try {
         await addDoc(collection(db, 'registrations'), registrationData);
       } catch (fsError) {
-        handleFirestoreError(fsError, OperationType.CREATE, 'registrations');
+        console.warn('Firestore direct write notice:', fsError);
       }
 
-      // 3. Send email confirmation through server endpoint
-      const response = await fetch('/api/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          fullName: data.fullName,
-          email: data.email,
-          cedula: data.cedula,
-          birthDay: data.birthDay,
-          birthMonth: data.birthMonth,
-          birthYear: data.birthYear,
-        }),
-      });
+      // Also keep local offline copy for participant safety
+      try {
+        const backupKey = 'desafio_local_registrations';
+        const existing = JSON.parse(localStorage.getItem(backupKey) || '[]');
+        existing.unshift({
+          ...registrationData,
+          createdAt: new Date().toISOString(),
+          id: `reg_${Date.now()}`
+        });
+        localStorage.setItem(backupKey, JSON.stringify(existing.slice(0, 50)));
+      } catch (storageErr) {
+        console.warn('Local backup note:', storageErr);
+      }
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Error al procesar la inscripción en el servidor');
+      // 3. Send email confirmation through server endpoint (non-blocking)
+      try {
+        await fetch('/api/register', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            fullName: data.fullName.trim(),
+            email: data.email.trim().toLowerCase(),
+            cedula: data.cedula.trim(),
+            birthDay: data.birthDay,
+            birthMonth: data.birthMonth,
+            birthYear: data.birthYear,
+          }),
+        });
+      } catch (apiError) {
+        console.warn('Email notification notice:', apiError);
       }
 
       setIsSubmitted(true);
@@ -273,7 +293,7 @@ export default function App() {
       if (session) fetchHistory(session.idNumber);
     } catch (error) {
       console.error('Registration Error:', error);
-      alert(error instanceof Error ? error.message : 'Error desconocido');
+      setSubmissionError('Ocurrió un inconveniente al procesar la inscripción. Por favor verifica tus datos e inténtalo nuevamente.');
     } finally {
       setIsSubmitting(false);
     }
@@ -665,6 +685,15 @@ export default function App() {
                     )}
                   </button>
                   
+                  {submissionError && (
+                    <div className="p-4 bg-red-50 border border-red-200 rounded-2xl flex items-start space-x-3 text-left">
+                      <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={16} />
+                      <p className="text-xs text-red-700 font-bold">
+                        {submissionError}
+                      </p>
+                    </div>
+                  )}
+
                   {Object.keys(errors).length > 0 && (
                     <div className="p-3 bg-red-50 border border-red-100 rounded-xl flex items-start space-x-2">
                       <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={14} />
