@@ -30,8 +30,11 @@ function getResend() {
 }
 
 async function startServer() {
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
+
   // API Routes
-  app.post("/api/register", upload.single("proofOfPayment"), async (req, res) => {
+  app.post("/api/register", async (req, res) => {
     try {
       const {
         fullName,
@@ -40,18 +43,14 @@ async function startServer() {
         birthDay,
         birthMonth,
         birthYear,
-        category,
-        paymentReference,
       } = req.body;
-
-      const file = req.file;
 
       if (!fullName || !email || !cedula) {
         console.error("Missing required fields:", { fullName, email, cedula });
         return res.status(400).json({ error: "Faltan campos requeridos en el servidor" });
       }
 
-      console.log(`New registration from ${fullName} (${email}), Ref: ${paymentReference}`);
+      console.log(`New registration from ${fullName} (${email}), Cédula: ${cedula}`);
 
       // Notification to Admin
       console.log("Attempting to send email notification to johnnyaldanac@gmail.com...");
@@ -61,23 +60,14 @@ async function startServer() {
           const emailResponse = await resendClient.emails.send({
             from: "Registro Carrera <onboarding@resend.dev>",
             to: "johnnyaldanac@gmail.com",
-            subject: `Nueva Inscripción: ${fullName} - ${category}`,
+            subject: `Nueva Inscripción: ${fullName}`,
             html: `
               <h1>Nueva Inscripción Recibida</h1>
-              <p><strong>Nombre:</strong> ${fullName}</p>
-              <p><strong>Email:</strong> ${email}</p>
+              <p><strong>Nombre Completo:</strong> ${fullName}</p>
+              <p><strong>Correo Electrónico:</strong> ${email}</p>
               <p><strong>Cédula:</strong> ${cedula}</p>
               <p><strong>Fecha de Nacimiento:</strong> ${birthDay}/${birthMonth}/${birthYear}</p>
-              <p><strong>Categoría:</strong> ${category}</p>
-              <p><strong>Referencia:</strong> ${paymentReference}</p>
-              <p>Se ha adjuntado el comprobante de pago.</p>
             `,
-            attachments: file ? [
-              {
-                filename: file.originalname,
-                content: file.buffer,
-              }
-            ] : [],
           });
           console.log("Email result:", emailResponse);
         } catch (emailError: any) {

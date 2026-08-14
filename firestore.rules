@@ -21,8 +21,7 @@ service cloud.firestore {
     function isValidRegistration(data) {
       return data.fullName is string && data.fullName.size() <= 200 &&
              data.idNumber is string && data.idNumber.size() <= 50 &&
-             data.email is string && data.email.size() <= 100 &&
-             data.paymentReference is string && data.paymentReference.size() <= 100;
+             data.email is string && data.email.size() <= 100;
     }
 
     match /registrations/{registrationId} {
@@ -36,6 +35,13 @@ service cloud.firestore {
     match /users/{userId} {
       allow get: if isSignedIn() && request.auth.uid == userId;
       allow create, update: if isSignedIn() && request.auth.uid == userId && isValidUser(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /gallery_photos/{photoId} {
+      allow get, list: if true;
+      allow create, update: if request.resource.data.photoId is string &&
+                               request.resource.data.dataUrl is string;
       allow delete: if false;
     }
   }

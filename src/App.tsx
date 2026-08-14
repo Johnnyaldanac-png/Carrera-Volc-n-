@@ -6,8 +6,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Trophy, 
   Calendar, 
-  CreditCard, 
-  Upload, 
   User as UserIcon, 
   CheckCircle2, 
   AlertCircle,
@@ -18,12 +16,19 @@ import {
   MessageCircle,
   Share2,
   LogOut,
-  ChevronDown
+  MapPin,
+  Map,
+  Mail,
+  CreditCard,
+  Camera,
+  Sparkles,
+  Maximize2,
+  X
 } from 'lucide-react';
 import { APP_CONFIG } from './config';
-import { auth, googleProvider, db } from './lib/firebase';
-import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
-import { collection, addDoc, serverTimestamp, setDoc, doc, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { AboutGallery } from './components/AboutGallery';
+import { auth, db } from './lib/firebase';
+import { collection, addDoc, serverTimestamp, query, where, getDocs, orderBy } from 'firebase/firestore';
 
 // --------------------------------------------------------------------------------
 // VALIDATION SCHEMA
@@ -36,12 +41,6 @@ const registrationSchema = z.object({
   birthDay: z.string().min(1, 'Día requerido'),
   birthMonth: z.string().min(1, 'Mes requerido'),
   birthYear: z.string().min(4, 'Año requerido'),
-  category: z.string().min(1, 'Debes seleccionar una categoría'),
-  paymentReference: z.string().min(1, 'La referencia de pago es requerida'),
-  proofOfPayment: z.any()
-    .refine((files) => files?.length > 0, "El comprobante de pago es obligatorio")
-    .refine((files) => files?.[0]?.type.startsWith('image/'), "Debe ser una imagen (JPG, PNG, etc.)")
-    .refine((files) => files?.[0]?.size <= 5000000, "La imagen no debe pesar más de 5MB")
 }).refine((data) => {
   if (!data.birthDay || !data.birthMonth || !data.birthYear) return true;
   
@@ -145,11 +144,11 @@ export default function App() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<'register' | 'about' | 'contact' | 'history'>('register');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [userRegistrations, setUserRegistrations] = useState<any[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<{ src: string; caption: string; tag: string } | null>(null);
 
   const {
     register,
@@ -186,13 +185,12 @@ export default function App() {
 
   const watchMonth = watch('birthMonth');
   const watchYear = watch('birthYear');
-  const watchDay = watch('birthDay');
 
   // Calculate days based on month and year
   const getDaysInMonth = (month: string, year: string) => {
     if (!month) return 31;
     const m = parseInt(month);
-    const y = year ? parseInt(year) : 2000; // Default year for leap year check if not selected
+    const y = year ? parseInt(year) : 2000;
     return new Date(y, m, 0).getDate();
   };
 
@@ -237,12 +235,9 @@ export default function App() {
         birthDay: data.birthDay,
         birthMonth: data.birthMonth,
         birthYear: data.birthYear,
-        category: data.category,
-        paymentReference: data.paymentReference,
         userId: session?.idNumber || 'anonymous',
         createdAt: serverTimestamp(),
-        // Add status for tracking
-        status: 'pending'
+        status: 'registered'
       };
 
       // 2. Save to Firestore
@@ -252,25 +247,20 @@ export default function App() {
         handleFirestoreError(fsError, OperationType.CREATE, 'registrations');
       }
 
-      // 3. (Optional) Also send to backend if needed (legacy)
-      const formData = new FormData();
-      formData.append('fullName', data.fullName);
-      formData.append('email', data.email);
-      formData.append('cedula', data.cedula);
-      formData.append('birthDay', data.birthDay);
-      formData.append('birthMonth', data.birthMonth);
-      formData.append('birthYear', data.birthYear);
-      formData.append('category', data.category);
-      formData.append('paymentReference', data.paymentReference);
-      
-      if (data.proofOfPayment?.[0]) {
-        formData.append('proofOfPayment', data.proofOfPayment[0]);
-      }
-
-      // We still hit the backend to handle the image upload/email
+      // 3. Send email confirmation through server endpoint
       const response = await fetch('/api/register', {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fullName: data.fullName,
+          email: data.email,
+          cedula: data.cedula,
+          birthDay: data.birthDay,
+          birthMonth: data.birthMonth,
+          birthYear: data.birthYear,
+        }),
       });
 
       if (!response.ok) {
@@ -279,27 +269,13 @@ export default function App() {
       }
 
       setIsSubmitted(true);
-      reset(); // Clear form
-      setImagePreview(null);
-      if (session) fetchHistory(session.idNumber); // Refresh history
+      reset();
+      if (session) fetchHistory(session.idNumber);
     } catch (error) {
       console.error('Registration Error:', error);
       alert(error instanceof Error ? error.message : 'Error desconocido');
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file && file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    } else {
-      setImagePreview(null);
     }
   };
 
@@ -403,6 +379,93 @@ export default function App() {
     <div className="min-h-screen bg-[#f8f9fa] font-sans text-[#1a1a1a] p-4 md:p-8 relative">
       <NavMenu />
       
+      {currentView === 'about' ? (
+        /* FULL-PAGE VIEW FOR ¿QUIÉNES SOMOS? */
+        <motion.div
+          key="about-full-page"
+          initial={{ opacity: 0, y: 16, scale: 0.99 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -16, scale: 0.99 }}
+          transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+          className="max-w-4xl mx-auto mb-12"
+        >
+          <div className="bg-white rounded-[2.5rem] p-6 sm:p-10 md:p-12 shadow-2xl shadow-gray-200/50 border border-gray-50 flex flex-col space-y-8 text-left">
+            {/* HEADER */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-6">
+              <div>
+                <div className="inline-flex items-center space-x-2 px-3 py-1 bg-orange-100 text-orange-600 rounded-full text-xs font-bold uppercase tracking-wider mb-2">
+                  <Trophy size={14} />
+                  <span>Historia & Legado</span>
+                </div>
+                <h1 className="text-3xl md:text-5xl font-black text-[#1a1a1a] tracking-tight">
+                  ¿Quiénes somos?
+                </h1>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCurrentView('register')}
+                className="self-start sm:self-center flex items-center space-x-2 px-5 py-3 bg-orange-50 hover:bg-orange-100 text-orange-600 font-bold rounded-2xl text-xs transition-all active:scale-95 shadow-sm"
+              >
+                <span>Ir al Registro</span>
+                <ChevronRight size={16} />
+              </button>
+            </div>
+
+            {/* STORY CONTENT & HISTORICAL GALLERY */}
+            <div className="space-y-8 text-gray-600 font-medium text-base md:text-lg leading-relaxed">
+              <p>
+                El <strong className="text-gray-900 font-black">Desafío al Volcán</strong> nació como una propuesta innovadora gracias al impulso de sus pilares fundadores: <span className="font-bold text-gray-800">Ricardo Sanguino, Manuel Rojas, Carmen Contreras, Reyes Aldana</span> y las marcas que decidieron apostar por el proyecto desde el primer momento. En sus inicios, comenzó exclusivamente como una competencia de ciclismo y, con el tiempo, incorporó la modalidad de trail running.
+              </p>
+
+              {/* RUTAS ORIGINALES TEXT BOX */}
+              <div className="bg-orange-50/70 p-6 md:p-8 rounded-3xl border border-orange-100 space-y-4">
+                <h4 className="text-xs font-black uppercase tracking-widest text-orange-600 flex items-center gap-2">
+                  <Map size={18} /> Las rutas originales
+                </h4>
+                
+                <ul className="space-y-4 text-sm md:text-base text-gray-700">
+                  <li className="flex items-start gap-3">
+                    <span className="w-2.5 h-2.5 rounded-full bg-orange-500 mt-2 shrink-0" />
+                    <span><strong className="text-gray-900 font-bold">Ciclismo:</strong> Partía desde el Polideportivo de La Trinidad y culminaba en la Hacienda Topito, ascendiendo al volcán por la vía de asfalto.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="w-2.5 h-2.5 rounded-full bg-orange-500 mt-2 shrink-0" />
+                    <span><strong className="text-gray-900 font-bold">Trail Running:</strong> Iniciaba en el mismo punto de salida, pero adentrándose por los senderos de la montaña del volcán hasta llegar a la misma hacienda.</span>
+                  </li>
+                </ul>
+              </div>
+
+              {/* DYNAMIC HISTORICAL PHOTO GALLERY */}
+              <AboutGallery onSelectImage={setSelectedImage} />
+
+              <p>
+                Hoy comienza una <strong className="text-gray-900 font-black">nueva era para el Desafío al Volcán</strong>. Este renacimiento está liderado por <span className="font-bold text-gray-800">Reyes Aldana y Carmen Contreras</span> (dos de sus figuras históricas más importantes) junto a la incorporación de <span className="font-bold text-gray-800">Johnny Aldana</span>.
+              </p>
+
+              <div className="p-6 md:p-8 bg-gray-50 rounded-3xl border border-gray-100 text-gray-700 text-sm md:text-base leading-relaxed">
+                <p>
+                  Este proyecto busca marcar un punto de partida y rescatar aquellas emblemáticas carreras que con los años se han perdido, honrando el esfuerzo y el sacrificio de los organizadores que abrieron camino. <span className="font-black text-orange-600">¡Venimos con todo y con muchos proyectos más por delante!</span>
+                </p>
+              </div>
+            </div>
+
+            {/* FOOTER CALL TO ACTION */}
+            <div className="pt-6 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">
+                Desafío El Volcán — New Era
+              </p>
+              <button
+                type="button"
+                onClick={() => setCurrentView('register')}
+                className="w-full sm:w-auto bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white font-black px-8 py-4 rounded-2xl shadow-xl shadow-orange-200 transition-all flex items-center justify-center space-x-2 text-sm"
+              >
+                <span>Volver e Inscribirse</span>
+                <ChevronRight size={18} />
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      ) : (
       <div className="max-w-4xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 mb-12">
         
         {/* LEFT COLUMN: INFO & HEADER */}
@@ -425,38 +488,39 @@ export default function App() {
               new era
             </p>
             <p className="text-gray-500 font-medium max-w-sm">
-              Únete a la experiencia de running más grande del año. Regístrate ahora y asegura tu kit oficial.
+              Únete a la experiencia de running más grande del año. Completa tus datos para registrar tu participación.
             </p>
           </header>
 
-          {/* PAYMENT INFO BOX */}
+          {/* EVENT DETAILS BOX */}
           <section className="bg-white p-6 rounded-3xl border border-gray-100 shadow-xl shadow-gray-200/50 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-orange-50 rounded-full -mr-16 -mt-16 opacity-50" />
-            <h3 className="text-lg font-bold flex items-center space-x-2 mb-1 relative z-10">
-              <CreditCard className="text-orange-500" />
-              <span>Datos de Pago</span>
+            <h3 className="text-lg font-bold flex items-center space-x-2 mb-4 relative z-10">
+              <Trophy className="text-orange-500" />
+              <span>Información del Evento</span>
             </h3>
-            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-4 relative z-10">
-              a tasa bcv del dia
-            </p>
             <div className="space-y-4 relative z-10">
-              <div className="flex flex-col">
-                <span className="text-[10px] uppercase font-bold text-gray-400 tracking-widest">Banco</span>
-                <span className="text-md font-bold">{APP_CONFIG.paymentInfo.banco}</span>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col">
-                  <span className="text-[10px] uppercase font-bold text-gray-400 tracking-widest">Cédula</span>
-                  <span className="text-md font-bold">{APP_CONFIG.paymentInfo.cedula}</span>
+              <div className="flex items-start space-x-3">
+                <div className="p-2 bg-orange-50 text-orange-500 rounded-xl">
+                  <MapPin size={16} />
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-[10px] uppercase font-bold text-gray-400 tracking-widest">Pago Móvil</span>
-                  <span className="text-md font-bold">{APP_CONFIG.paymentInfo.celular}</span>
+                  <span className="text-[10px] uppercase font-bold text-gray-400 tracking-widest">Ubicación</span>
+                  <span className="text-sm font-bold text-gray-800">{APP_CONFIG.eventInfo.location}</span>
                 </div>
               </div>
-              <div className="pt-2 flex items-start space-x-2 text-xs text-blue-600 bg-blue-50 p-3 rounded-xl border border-blue-100">
+              <div className="flex items-start space-x-3">
+                <div className="p-2 bg-orange-50 text-orange-500 rounded-xl">
+                  <Trophy size={16} />
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-[10px] uppercase font-bold text-gray-400 tracking-widest">Modalidad</span>
+                  <span className="text-sm font-bold text-gray-800">{APP_CONFIG.eventInfo.distance}</span>
+                </div>
+              </div>
+              <div className="pt-2 flex items-start space-x-2 text-xs text-orange-700 bg-orange-50 p-3 rounded-xl border border-orange-100">
                 <Info size={14} className="mt-0.5 shrink-0" />
-                <p>Realice su pago antes de llenar el formulario para adjuntar el comprobante.</p>
+                <p>Completa el formulario con tus datos personales para asegurar tu número de corredor.</p>
               </div>
             </div>
           </section>
@@ -464,7 +528,7 @@ export default function App() {
           <footer className="hidden lg:block pt-4">
             <div className="flex items-center space-x-4 opacity-30 grayscale hover:grayscale-0 transition-all">
               <div className="h-[1px] flex-1 bg-gray-300" />
-              <span className="text-[10px] font-bold uppercase tracking-widest">Patrocinado por Runners.co</span>
+              <span className="text-[10px] font-bold uppercase tracking-widest">Desafío El Volcán</span>
             </div>
           </footer>
         </motion.div>
@@ -476,14 +540,15 @@ export default function App() {
           transition={{ delay: 0.1 }}
           className="lg:col-span-7"
         >
-          <div className="bg-white rounded-[2.5rem] p-8 md:p-10 shadow-2xl shadow-gray-200/50 border border-gray-50 min-h-[600px] flex flex-col">
+          <div className="bg-white rounded-[2.5rem] p-8 md:p-10 shadow-2xl shadow-gray-200/50 border border-gray-50 min-h-[500px] flex flex-col">
             <AnimatePresence mode="wait">
               {currentView === 'register' && !isSubmitted && (
                 <motion.form 
                   key="registration-form"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
+                  initial={{ opacity: 0, y: 14, scale: 0.99 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -12, scale: 0.99 }}
+                  transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
                   onSubmit={handleSubmit(onSubmit)}
                   className="space-y-6"
                 >
@@ -518,7 +583,7 @@ export default function App() {
                     {/* EMAIL */}
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-1 flex items-center gap-2">
-                        <UserIcon size={12} /> Correo Electrónico
+                        <Mail size={12} /> Correo Electrónico
                       </label>
                       <input
                         {...register('email')}
@@ -576,112 +641,48 @@ export default function App() {
                         </p>
                       )}
                     </div>
-
-                    {/* CATEGORY */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-1 flex items-center gap-2">
-                        <Trophy size={12} /> Categoría
-                      </label>
-                      <select
-                        {...register('category')}
-                        className={`w-full bg-gray-50 border-none rounded-2xl p-4 text-sm font-medium focus:ring-2 focus:ring-orange-500 appearance-none transition-all ${errors.category ? 'ring-2 ring-red-400 bg-red-50' : ''}`}
-                      >
-                        <option value="">Selecciona tu categoría</option>
-                        {APP_CONFIG.categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                      </select>
-                      {errors.category && <p className="text-[10px] text-red-500 font-bold ml-1">{errors.category.message}</p>}
-                    </div>
-
-                    {/* PAYMENT REFERENCE */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-1 flex items-center gap-2">
-                        <CheckCircle2 size={12} /> Referencia Bancaria
-                      </label>
-                      <input
-                        {...register('paymentReference')}
-                        className={`w-full bg-gray-50 border-none rounded-2xl p-4 text-sm font-medium focus:ring-2 focus:ring-orange-500 transition-all ${errors.paymentReference ? 'ring-2 ring-red-400 bg-red-50' : ''}`}
-                        placeholder="Últimos 4 o 6 dígitos de la transferencia"
-                      />
-                      {errors.paymentReference && <p className="text-[10px] text-red-500 font-bold ml-1">{errors.paymentReference.message}</p>}
-                    </div>
-
-                    {/* PROOF OF PAYMENT */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-1 flex items-center gap-2">
-                        <Upload size={12} /> Comprobante de Pago
-                      </label>
-                      <div className="relative group">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                          {...register('proofOfPayment')}
-                          onChange={(e) => {
-                            register('proofOfPayment').onChange(e);
-                            handleImageChange(e);
-                          }}
-                        />
-                        <div className={`w-full border-2 border-dashed rounded-3xl p-6 flex flex-col items-center justify-center space-y-2 transition-all ${errors.proofOfPayment ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-gray-50 group-hover:bg-gray-100 group-hover:border-orange-300'}`}>
-                          {imagePreview ? (
-                            <div className="relative w-full aspect-video rounded-xl overflow-hidden">
-                              <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
-                              <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                                <span className="text-white text-xs font-bold uppercase">Cambiar Imagen</span>
-                              </div>
-                            </div>
-                          ) : (
-                            <>
-                              <div className="p-3 bg-white rounded-2xl shadow-sm text-gray-400 group-hover:text-orange-500 transition-colors">
-                                <Upload size={24} />
-                              </div>
-                              <span className="text-sm font-bold text-gray-500">Subir Captura/Foto</span>
-                              <span className="text-[10px] text-gray-400">JPG, PNG hasta 5MB</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      {errors.proofOfPayment && <p className="text-[10px] text-red-500 font-bold ml-1">{errors.proofOfPayment.message as string}</p>}
-                    </div>
                   </div>
 
-                    <button
-                      type="submit"
-                      disabled={isSubmitting}
-                      className="w-full bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white font-black py-5 rounded-[1.5rem] shadow-xl shadow-orange-200 transition-all flex items-center justify-center space-x-3 disabled:opacity-70 disabled:cursor-not-allowed group"
-                    >
-                      {isSubmitting ? (
-                        <>
-                          <motion.div 
-                            animate={{ rotate: 360 }}
-                            transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
-                            className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
-                          />
-                          <span>PROCESANDO...</span>
-                        </>
-                      ) : (
-                        <>
-                          <span>REGISTRAR INSCRIPCIÓN</span>
-                          <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" />
-                        </>
-                      )}
-                    </button>
-                    
-                    {Object.keys(errors).length > 0 && (
-                      <div className="p-3 bg-red-50 border border-red-100 rounded-xl flex items-start space-x-2">
-                        <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={14} />
-                        <p className="text-[10px] text-red-600 font-bold">
-                          Hay errores en el formulario. Por favor revisa los campos marcados en rojo.
-                        </p>
-                      </div>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="w-full bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white font-black py-5 rounded-[1.5rem] shadow-xl shadow-orange-200 transition-all flex items-center justify-center space-x-3 disabled:opacity-70 disabled:cursor-not-allowed group"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <motion.div 
+                          animate={{ rotate: 360 }}
+                          transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
+                          className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
+                        />
+                        <span>PROCESANDO...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>REGISTRAR INSCRIPCIÓN</span>
+                        <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" />
+                      </>
                     )}
+                  </button>
+                  
+                  {Object.keys(errors).length > 0 && (
+                    <div className="p-3 bg-red-50 border border-red-100 rounded-xl flex items-start space-x-2">
+                      <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={14} />
+                      <p className="text-[10px] text-red-600 font-bold">
+                        Hay errores en el formulario. Por favor revisa los campos marcados en rojo.
+                      </p>
+                    </div>
+                  )}
                 </motion.form>
               )}
 
               {currentView === 'register' && isSubmitted && (
                 <motion.div 
                   key="success-message"
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
+                  initial={{ opacity: 0, scale: 0.95, y: 14 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -12 }}
+                  transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
                   className="flex flex-col items-center justify-center flex-1 text-center space-y-6 py-10"
                 >
                   <div className="w-24 h-24 bg-green-100 text-green-500 rounded-full flex items-center justify-center shadow-inner">
@@ -690,11 +691,11 @@ export default function App() {
                   <div>
                     <h2 className="text-3xl font-black tracking-tight mb-2">¡Inscripción Recibida!</h2>
                     <p className="text-gray-500 max-w-sm mx-auto mb-4">
-                      Tu registro ha sido enviado con éxito. Validaremos tu pago en las próximas 24 horas y te enviaremos un correo de confirmación.
+                      Tu registro ha sido enviado con éxito. Te esperamos en la línea de salida del Desafío El Volcán.
                     </p>
                     <div className="bg-orange-50 p-6 rounded-3xl border border-orange-100 mb-6">
                       <p className="text-orange-700 font-bold text-sm">
-                        Si no recibe respuesta en las próximas 72 horas escriba al número <span className="whitespace-nowrap">0414-2526647</span>
+                        Si tienes alguna duda o consulta, puedes escribir al <span className="whitespace-nowrap">0414-2526647</span>
                       </p>
                     </div>
 
@@ -760,9 +761,10 @@ export default function App() {
               {currentView === 'history' && (
                 <motion.div
                   key="history-view"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
+                  initial={{ opacity: 0, y: 14, scale: 0.99 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -12, scale: 0.99 }}
+                  transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
                   className="space-y-6 py-4"
                 >
                   <div className="flex items-center justify-between mb-2">
@@ -792,22 +794,22 @@ export default function App() {
                             <div className="space-y-1">
                               <div className="flex items-center gap-2">
                                 <span className="px-3 py-1 bg-orange-100 text-orange-600 rounded-lg text-[10px] font-black uppercase tracking-widest">
-                                  {reg.category}
+                                  Inscrito
                                 </span>
                                 <span className="text-[10px] font-bold text-gray-400">
-                                  {reg.createdAt?.toDate().toLocaleDateString('es-VE')}
+                                  {reg.createdAt?.toDate ? reg.createdAt.toDate().toLocaleDateString('es-VE') : 'Reciente'}
                                 </span>
                               </div>
                               <h4 className="text-xl font-black text-gray-900 capitalize">{reg.fullName}</h4>
                               <p className="text-xs font-bold text-gray-500">{reg.idNumber}</p>
+                              <p className="text-xs text-gray-400">{reg.email}</p>
                             </div>
                             <div className="flex items-center space-x-3">
                               <div className="flex flex-col items-end">
                                 <div className="flex items-center space-x-1.5 text-green-500 font-bold text-xs">
                                   <CheckCircle2 size={12} />
-                                  <span>Recibida</span>
+                                  <span>Confirmado</span>
                                 </div>
-                                <span className="text-[10px] text-gray-400 font-medium">Ref: {reg.paymentReference}</span>
                               </div>
                               <ChevronRight className="text-gray-300" />
                             </div>
@@ -835,68 +837,47 @@ export default function App() {
                 </motion.div>
               )}
 
-              {currentView === 'about' && (
-                <motion.div 
-                  key="about-view"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  className="space-y-8 py-4"
-                >
-                  <h2 className="text-4xl font-black">¿Quiénes somos?</h2>
-                  <div className="space-y-4 text-gray-500 font-medium text-lg leading-relaxed">
-                    <p>
-                      Desafío El Volcán es más que una carrera; es una comunidad de corredores apasionados que buscan superar sus límites.
-                    </p>
-                    <p>
-                      Nuestra misión es fomentar el deporte y la salud a través de eventos de alta calidad técnica y humana.
-                    </p>
-                    <div className="p-8 bg-gray-50 rounded-3xl border border-dashed border-gray-200 text-center">
-                      <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Próximamente</p>
-                      <p className="text-gray-400">Más información sobre nuestra historia y equipo.</p>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-
-              {currentView === 'contact' && (
-                <motion.div 
-                  key="contact-view"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  className="space-y-8 py-4 px-2"
-                >
-                  <h2 className="text-4xl font-black">Contacto</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="bg-orange-50 p-8 rounded-[2rem] border border-orange-100 flex flex-col items-center text-center space-y-4">
-                      <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center text-orange-500">
-                        <AlertCircle size={32} />
+                {/* CONTACT VIEW */}
+                {currentView === 'contact' && (
+                  <motion.div 
+                    key="contact-view"
+                    initial={{ opacity: 0, y: 14, scale: 0.99 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -12, scale: 0.99 }}
+                    transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                    className="space-y-8 py-4 px-2"
+                  >
+                    <h2 className="text-4xl font-black">Contacto</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="bg-orange-50 p-8 rounded-[2rem] border border-orange-100 flex flex-col items-center text-center space-y-4">
+                        <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center text-orange-500">
+                          <AlertCircle size={32} />
+                        </div>
+                        <div>
+                          <h4 className="font-black text-orange-900">WhatsApp / Soporte</h4>
+                          <p className="text-orange-700 font-bold mt-1">0414-2526647</p>
+                        </div>
                       </div>
-                      <div>
-                        <h4 className="font-black text-orange-900">WhatsApp / Soporte</h4>
-                        <p className="text-orange-700 font-bold mt-1">0414-2526647</p>
+                      <div className="bg-gray-50 p-8 rounded-[2rem] border border-gray-100 flex flex-col items-center text-center space-y-4">
+                        <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center text-gray-400">
+                           <UserIcon size={32} />
+                        </div>
+                        <div>
+                          <h4 className="font-black text-gray-900">Correo Electrónico</h4>
+                          <p className="text-gray-500 font-bold mt-1">{APP_CONFIG.adminEmail}</p>
+                        </div>
                       </div>
                     </div>
-                    <div className="bg-gray-50 p-8 rounded-[2rem] border border-gray-100 flex flex-col items-center text-center space-y-4">
-                      <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center text-gray-400">
-                         <UserIcon size={32} />
-                      </div>
-                      <div>
-                        <h4 className="font-black text-gray-900">Correo Electrónico</h4>
-                        <p className="text-gray-500 font-bold mt-1">{APP_CONFIG.adminEmail}</p>
-                      </div>
+                    <div className="p-8 bg-white border border-gray-100 rounded-3xl shadow-sm text-center">
+                      <p className="text-gray-500">Estamos disponibles para resolver cualquier duda sobre tu inscripción.</p>
                     </div>
-                  </div>
-                  <div className="p-8 bg-white border border-gray-100 rounded-3xl shadow-sm text-center">
-                    <p className="text-gray-500">Estamos disponibles para resolver cualquier duda sobre tu inscripción.</p>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        </motion.div>
-      </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* GLOBAL FOOTER MESSAGE */}
       <div className="max-w-4xl mx-auto text-center py-8">
@@ -973,6 +954,52 @@ export default function App() {
               <div className="pt-4 border-t border-gray-50 flex items-center justify-center space-x-2 text-[8px] font-bold text-gray-300 uppercase tracking-[0.2em]">
                 <CheckCircle2 size={10} />
                 <span>Seguridad Verificada</span>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* IMAGE PREVIEW LIGHTBOX MODAL */}
+        {selectedImage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6 bg-black/85 backdrop-blur-md"
+            onClick={() => setSelectedImage(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.92, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.92, opacity: 0 }}
+              transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+              className="relative max-w-4xl w-full bg-gray-950 rounded-[2rem] overflow-hidden shadow-2xl border border-white/10 flex flex-col"
+              onClick={e => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => setSelectedImage(null)}
+                className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center transition-all backdrop-blur-sm"
+              >
+                <X size={20} />
+              </button>
+
+              <div className="w-full max-h-[70vh] flex items-center justify-center bg-black">
+                <img
+                  src={selectedImage.src}
+                  alt={selectedImage.caption}
+                  referrerPolicy="no-referrer"
+                  className="max-h-[70vh] w-auto max-w-full object-contain"
+                />
+              </div>
+
+              <div className="p-6 bg-gradient-to-t from-gray-950 to-gray-900 border-t border-white/10 space-y-2 text-left">
+                <span className="inline-block px-3 py-1 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-full text-[10px] font-black uppercase tracking-wider">
+                  {selectedImage.tag}
+                </span>
+                <p className="text-sm md:text-base text-gray-200 font-medium">
+                  {selectedImage.caption}
+                </p>
               </div>
             </motion.div>
           </motion.div>

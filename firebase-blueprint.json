@@ -10,19 +10,11 @@
         "birthDay": { "type": "string" },
         "birthMonth": { "type": "string" },
         "birthYear": { "type": "string" },
-        "gender": { "type": "string" },
-        "tshirtSize": { "type": "string" },
-        "modality": { "type": "string" },
-        "state": { "type": "string" },
-        "phone": { "type": "string" },
         "email": { "type": "string" },
-        "club": { "type": "string" },
-        "paymentReference": { "type": "string" },
-        "paymentImage": { "type": "string" },
         "userId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["fullName", "idNumber", "birthDay", "birthMonth", "birthYear", "gender", "tshirtSize", "modality", "state", "phone", "email", "paymentReference"]
+      "required": ["fullName", "idNumber", "birthDay", "birthMonth", "birthYear", "email"]
     },
     "users": {
         "title": "User",
@@ -36,6 +28,18 @@
             "createdAt": { "type": "string", "format": "date-time" }
         },
         "required": ["uid", "email"]
+    },
+    "gallery_photos": {
+        "title": "GalleryPhoto",
+        "description": "Historical gallery image stored as base64 data URL",
+        "type": "object",
+        "properties": {
+            "photoId": { "type": "string" },
+            "filename": { "type": "string" },
+            "dataUrl": { "type": "string" },
+            "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["photoId", "dataUrl"]
     }
   },
   "firestore": {
@@ -46,6 +50,10 @@
     "users/{userId}": {
         "schema": "users",
         "description": "Collection of user profiles"
+    },
+    "gallery_photos/{photoId}": {
+        "schema": "gallery_photos",
+        "description": "Collection of community and historical race photographs"
     }
   }
 }
