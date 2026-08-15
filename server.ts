@@ -2,7 +2,6 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import fs from "fs";
-import multer from "multer";
 import { Resend } from "resend";
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
@@ -23,22 +22,22 @@ function getResend(): Resend | null {
   return resend;
 }
 
-// Lazy initialization of Nodemailer
+// Lazy initialization of Nodemailer (Gmail or Custom SMTP)
 let mailTransporter: nodemailer.Transporter | null = null;
-function getMailTransporter(): nodemailer.Transporter | null {
-  const gmailUser = process.env.GMAIL_USER || process.env.SMTP_USER;
-  const gmailPass = process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS;
+function getMailTransporter(): { transporter: nodemailer.Transporter | null; senderAddress: string | null } {
+  const user = process.env.GMAIL_USER || process.env.EMAIL_USER || process.env.SMTP_USER;
+  const pass = process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_PASSWORD || process.env.EMAIL_PASS || process.env.SMTP_PASS;
 
-  if (gmailUser && gmailPass) {
+  if (user && pass) {
     if (!mailTransporter) {
       if (process.env.SMTP_HOST) {
         mailTransporter = nodemailer.createTransport({
           host: process.env.SMTP_HOST,
           port: parseInt(process.env.SMTP_PORT || "587"),
-          secure: process.env.SMTP_SECURE === "true",
+          secure: process.env.SMTP_SECURE === "true" || process.env.SMTP_PORT === "465",
           auth: {
-            user: gmailUser,
-            pass: gmailPass,
+            user,
+            pass,
           },
         });
       } else {
@@ -46,15 +45,15 @@ function getMailTransporter(): nodemailer.Transporter | null {
         mailTransporter = nodemailer.createTransport({
           service: "gmail",
           auth: {
-            user: gmailUser,
-            pass: gmailPass,
+            user,
+            pass,
           },
         });
       }
     }
-    return mailTransporter;
+    return { transporter: mailTransporter, senderAddress: user };
   }
-  return null;
+  return { transporter: null, senderAddress: null };
 }
 
 const calculateCategory = (birthDay: string, birthMonth: string, birthYear: string): string => {
@@ -68,7 +67,7 @@ const calculateCategory = (birthDay: string, birthMonth: string, birthYear: stri
   }
 
   if (age < 5) return "Menor de 5 años";
-  if (age <= 11) return `Infantil / Semillero (${age} años)`;
+  if (age <= 11) return `Infantil (${age} años)`;
   if (age <= 15) return `Juvenil (${age} años)`;
   if (age <= 29) return `Libre (${age} años)`;
   if (age <= 39) return `Sub-Master (${age} años)`;
@@ -111,7 +110,7 @@ async function sendRegistrationEmails(payload: {
           .value { font-weight: 600; color: #1f2937; }
           .badge { display: inline-block; background: #f97316; color: #ffffff; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 800; text-transform: uppercase; }
           .footer { background: #fafafa; padding: 20px 24px; text-align: center; font-size: 12px; color: #6b7280; border-top: 1px solid #f3f4f6; }
-          .contact-btn { display: inline-block; background: #25d366; color: #ffffff; padding: 10px 20px; border-radius: 12px; font-weight: 800; text-decoration: none; font-size: 13px; margin-top: 10px; }
+          .contact-btn { display: inline-block; background: #25d366; color: #ffffff; padding: 12px 24px; border-radius: 12px; font-weight: 800; text-decoration: none; font-size: 13px; margin-top: 12px; }
         </style>
       </head>
       <body>
@@ -151,14 +150,14 @@ async function sendRegistrationEmails(payload: {
 
             <p style="font-size: 13px; color: #6b7280; line-height: 1.5;">
               📍 <strong>Ubicación:</strong> El Volcán, Caracas<br>
-              🏃 <strong>Modalidades:</strong> 3KM Trail Running / Asfalto (Desde los 5 años en adelante)<br>
+              🏃 <strong>Modalidad:</strong> 3KM Trail Running / Asfalto<br>
               🏁 <strong>Meta:</strong> Las Antenas / Hacienda Topito
             </p>
 
             <div style="text-align: center; margin-top: 24px;">
               <p style="font-size: 12px; font-weight: 700; color: #9a3412;">¿Tienes alguna consulta o deseas contactar a la organización?</p>
-              <a href="https://wa.me/584142526647?text=${encodeURIComponent('Hola, me he inscrito en el Desafío El Volcán: ' + fullName)}" class="contact-btn">
-                💬 Escribir al WhatsApp (0414-2526647)
+              <a href="https://wa.me/584142526647?text=${encodeURIComponent('Hola, me he inscrito en el Desafío El Volcán: ' + fullName + ' (Cédula: ' + cedula + ')')}" class="contact-btn">
+                💬 Escribir al WhatsApp Oficial (0414-2526647)
               </a>
             </div>
           </div>
@@ -174,15 +173,16 @@ async function sendRegistrationEmails(payload: {
   let participantSent = false;
   let adminSent = false;
   let providerUsed = "none";
+  let deliveryError: string | null = null;
 
   // 1. Try Nodemailer (Gmail / Custom SMTP)
-  const transporter = getMailTransporter();
-  if (transporter) {
+  const { transporter, senderAddress } = getMailTransporter();
+  if (transporter && senderAddress) {
     try {
-      providerUsed = "nodemailer/smtp";
+      providerUsed = "gmail/smtp";
       // Send to participant
       await transporter.sendMail({
-        from: `"Desafío El Volcán" <${process.env.GMAIL_USER || process.env.SMTP_USER}>`,
+        from: `"Desafío El Volcán" <${senderAddress}>`,
         to: email,
         subject: `🏆 Confirmación de Inscripción: ${fullName} - Desafío El Volcán`,
         html: emailHtml,
@@ -190,20 +190,23 @@ async function sendRegistrationEmails(payload: {
       participantSent = true;
 
       // Send to admin
-      await transporter.sendMail({
-        from: `"Desafío El Volcán" <${process.env.GMAIL_USER || process.env.SMTP_USER}>`,
-        to: adminEmail,
-        subject: `🚨 Nueva Inscripción: ${fullName} (${category})`,
-        html: emailHtml,
-      });
-      adminSent = true;
-      console.log("✅ Email delivered via Nodemailer to", email, "and", adminEmail);
-    } catch (smtpErr) {
-      console.error("⚠️ Nodemailer failed:", smtpErr);
+      if (adminEmail) {
+        await transporter.sendMail({
+          from: `"Desafío El Volcán" <${senderAddress}>`,
+          to: adminEmail,
+          subject: `🚨 Nueva Inscripción: ${fullName} (${category})`,
+          html: emailHtml,
+        });
+        adminSent = true;
+      }
+      console.log(`✅ Email delivered via SMTP/Gmail to participant: ${email} and admin: ${adminEmail}`);
+    } catch (smtpErr: any) {
+      console.error("⚠️ SMTP/Gmail delivery failed:", smtpErr?.message || smtpErr);
+      deliveryError = `Error SMTP: ${smtpErr?.message || 'Fallo de autenticación'}`;
     }
   }
 
-  // 2. Try Resend if Nodemailer didn't send
+  // 2. Try Resend if Nodemailer was not used or failed
   if (!participantSent || !adminSent) {
     const resendClient = getResend();
     if (resendClient) {
@@ -217,35 +220,49 @@ async function sendRegistrationEmails(payload: {
             subject: `🏆 Confirmación de Inscripción: ${fullName} - Desafío El Volcán`,
             html: emailHtml,
           });
-          if (res.data?.id) participantSent = true;
-          console.log("✅ Resend participant email result:", res);
-        } catch (resErr) {
-          console.error("⚠️ Resend participant send error:", resErr);
+          if (res.data?.id) {
+            participantSent = true;
+            console.log(`✅ Resend delivered to ${email} (ID: ${res.data.id})`);
+          } else if (res.error) {
+            console.error("⚠️ Resend error:", res.error);
+            deliveryError = `Resend error: ${res.error.message}`;
+          }
+        } catch (resErr: any) {
+          console.error("⚠️ Resend participant send error:", resErr?.message || resErr);
+          deliveryError = `Resend: ${resErr?.message || 'Error al conectar'}`;
         }
       }
 
       // Admin email
-      if (!adminSent) {
+      if (!adminSent && adminEmail) {
         try {
-          const res = await resendClient.emails.send({
+          const resAdmin = await resendClient.emails.send({
             from: `Desafío El Volcán <${fromEmail}>`,
             to: adminEmail,
             subject: `🚨 Nueva Inscripción: ${fullName} (${category})`,
             html: emailHtml,
           });
-          if (res.data?.id) adminSent = true;
-          console.log("✅ Resend admin email result:", res);
-        } catch (resErr) {
-          console.error("⚠️ Resend admin send error:", resErr);
+          if (resAdmin.data?.id) {
+            adminSent = true;
+            console.log(`✅ Resend delivered to admin ${adminEmail}`);
+          }
+        } catch (resAdminErr: any) {
+          console.error("⚠️ Resend admin send error:", resAdminErr?.message || resAdminErr);
         }
       }
     }
+  }
+
+  if (providerUsed === "none") {
+    deliveryError = "No hay credenciales de correo configuradas en las variables de entorno (GMAIL_USER / GMAIL_APP_PASSWORD o RESEND_API_KEY).";
+    console.log("ℹ️ No email provider credentials found. Registration saved to Firestore database.");
   }
 
   return {
     participantSent,
     adminSent,
     providerUsed,
+    deliveryError,
   };
 }
 
@@ -270,7 +287,7 @@ async function startServer() {
         return res.status(400).json({ error: "Faltan campos requeridos en el servidor" });
       }
 
-      console.log(`📥 New registration: ${fullName} (${email}), Cédula: ${cedula}, Fecha: ${birthDay}/${birthMonth}/${birthYear}`);
+      console.log(`📥 New registration received: ${fullName} (${email}), Cédula: ${cedula}`);
 
       // Send email notifications
       const emailResult = await sendRegistrationEmails({
@@ -291,6 +308,21 @@ async function startServer() {
       console.error("Global Server error:", error);
       res.status(500).json({ error: `Error interno del servidor: ${error.message || 'Error desconocido'}` });
     }
+  });
+
+  // Check email configuration status
+  app.get("/api/email-status", (req, res) => {
+    const hasGmail = Boolean(
+      (process.env.GMAIL_USER || process.env.EMAIL_USER || process.env.SMTP_USER) &&
+      (process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_PASSWORD || process.env.EMAIL_PASS || process.env.SMTP_PASS)
+    );
+    const hasResend = Boolean(process.env.RESEND_API_KEY);
+    
+    res.json({
+      configured: hasGmail || hasResend,
+      provider: hasGmail ? "Gmail/SMTP" : hasResend ? "Resend" : "Ninguno (Requiere configuración)",
+      adminEmail: process.env.ADMIN_EMAIL || "johnnyaldanac@gmail.com",
+    });
   });
 
   // Health check for debugging

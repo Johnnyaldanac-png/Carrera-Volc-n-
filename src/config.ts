@@ -3,7 +3,6 @@ export const APP_CONFIG = {
   eventInfo: {
     location: "El Volcán, Caracas",
     distance: "3KM Trail & Asfalto",
-    date: "Próximamente",
   },
   adminEmail: "johnnyaldanac@gmail.com",
 };

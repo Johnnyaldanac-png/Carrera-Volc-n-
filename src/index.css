@@ -1,1 +1,22 @@
 @import "tailwindcss";
+
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  
+  /* Hide navigation, background decorations, and buttons during print */
+  nav, button, .no-print, header, footer {
+    display: none !important;
+  }
+
+  /* Show only the voucher and printable confirmation */
+  #registration-voucher {
+    box-shadow: none !important;
+    border: 2px solid #ea580c !important;
+    margin: 20px auto !important;
+    max-width: 550px !important;
+    display: block !important;
+  }
+}
