@@ -470,11 +470,11 @@ export default function App() {
                 <ul className="space-y-4 text-sm md:text-base text-gray-700">
                   <li className="flex items-start gap-3">
                     <span className="w-2.5 h-2.5 rounded-full bg-orange-500 mt-2 shrink-0" />
-                    <span><strong className="text-gray-900 font-bold">Ciclismo:</strong> Partía desde el Polideportivo de La Trinidad y culminaba en la Hacienda Topito, ascendiendo al volcán por la vía de asfalto.</span>
+                    <span><strong className="text-gray-900 font-bold">Ciclismo:</strong> Inicia desde Las Mercedes y culminaba en la Hacienda Topito, ascendiendo al volcán por la vía de asfalto.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="w-2.5 h-2.5 rounded-full bg-orange-500 mt-2 shrink-0" />
-                    <span><strong className="text-gray-900 font-bold">Trail Running:</strong> Iniciaba en el mismo punto de salida, pero adentrándose por los senderos de la montaña del volcán hasta llegar a la misma hacienda.</span>
+                    <span><strong className="text-gray-900 font-bold">Trail Running:</strong> Iniciaba desde el Polideportivo de La Trinidad, pero adentrándose por los senderos de la montaña del volcán hasta llegar a la misma hacienda.</span>
                   </li>
                 </ul>
               </div>
