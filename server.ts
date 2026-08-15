@@ -156,8 +156,8 @@ async function sendRegistrationEmails(payload: {
 
             <div style="text-align: center; margin-top: 24px;">
               <p style="font-size: 12px; font-weight: 700; color: #9a3412;">¿Tienes alguna consulta o deseas contactar a la organización?</p>
-              <a href="https://wa.me/584142526647?text=${encodeURIComponent('Hola, me he inscrito en el Desafío El Volcán: ' + fullName + ' (Cédula: ' + cedula + ')')}" class="contact-btn">
-                💬 Escribir al WhatsApp Oficial (0414-2526647)
+              <a href="https://wa.me/584142525647?text=${encodeURIComponent('Hola, me he inscrito en el Desafío El Volcán: ' + fullName + ' (Cédula: ' + cedula + ')')}" class="contact-btn">
+                💬 Escribir al WhatsApp Oficial (0414-2525647)
               </a>
             </div>
           </div>

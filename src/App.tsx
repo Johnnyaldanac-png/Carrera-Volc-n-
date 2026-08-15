@@ -124,13 +124,6 @@ export default function App() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
-  const [emailDispatchResult, setEmailDispatchResult] = useState<{
-    participantSent: boolean;
-    adminSent: boolean;
-    providerUsed: string;
-    deliveryError?: string | null;
-  } | null>(null);
-  const [showEmailConfigModal, setShowEmailConfigModal] = useState(false);
   const [lastRegistered, setLastRegistered] = useState<{
     fullName: string;
     email: string;
@@ -274,10 +267,9 @@ export default function App() {
         console.warn('Local backup note:', storageErr);
       }
 
-      // 3. Send email confirmation through server endpoint
-      let emailDetails = null;
+      // 3. Send email confirmation in background if configured (optional)
       try {
-        const response = await fetch('/api/register', {
+        fetch('/api/register', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -290,16 +282,10 @@ export default function App() {
             birthMonth: data.birthMonth,
             birthYear: data.birthYear,
           }),
-        });
-        if (response.ok) {
-          const resJson = await response.json();
-          emailDetails = resJson.emailDetails || null;
-        }
+        }).catch(() => {});
       } catch (apiError) {
-        console.warn('Email notification notice:', apiError);
+        // background attempt only
       }
-
-      setEmailDispatchResult(emailDetails);
 
       setLastRegistered({
         fullName: data.fullName.trim(),
@@ -737,50 +723,73 @@ export default function App() {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: -12 }}
                   transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-                  className="flex flex-col items-center justify-center flex-1 text-center space-y-6 py-6"
+                  className="flex flex-col items-center justify-center flex-1 text-center space-y-5 py-4"
                 >
                   <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center shadow-inner">
                     <CheckCircle2 size={36} />
                   </div>
 
-                  <div>
-                    <h2 className="text-3xl font-black tracking-tight mb-1">¡Inscripción Exitosa!</h2>
-                    <p className="text-gray-600 max-w-sm mx-auto mb-4 text-xs font-medium">
-                      El participante ha sido registrado en la base de datos oficial del Desafío El Volcán.
+                  <div className="w-full">
+                    <h2 className="text-2xl sm:text-3xl font-black tracking-tight mb-1 text-gray-900">¡Registro Realizado con Éxito!</h2>
+                    <p className="text-gray-600 max-w-md mx-auto mb-4 text-xs sm:text-sm font-medium">
+                      Tus datos han sido guardados en el sistema del Desafío El Volcán.
                     </p>
 
-                    {/* STATUS OF EMAIL NOTIFICATION */}
-                    {emailDispatchResult?.participantSent ? (
-                      <div className="bg-emerald-50 p-3.5 rounded-2xl border border-emerald-200 mb-4 text-xs text-emerald-900 font-bold flex items-center gap-2 text-left">
-                        <Mail size={16} className="text-emerald-600 shrink-0" />
-                        <span>✅ Comprobante enviado automáticamente a <strong>{lastRegistered?.email}</strong></span>
-                      </div>
-                    ) : (
-                      <div className="bg-amber-50/90 p-3.5 rounded-2xl border border-amber-200 mb-4 text-xs text-amber-900 font-medium flex items-start gap-2.5 text-left">
-                        <Info size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                    {/* WHATSAPP ACTION CALLOUT BOX */}
+                    <div className="bg-emerald-50/95 border-2 border-emerald-500/30 rounded-3xl p-5 mb-5 text-left shadow-lg shadow-emerald-500/10">
+                      <div className="flex items-start gap-3">
+                        <div className="p-2.5 bg-emerald-600 text-white rounded-2xl shrink-0 shadow-md">
+                          <MessageCircle size={24} />
+                        </div>
                         <div className="flex-1">
-                          <p className="font-bold text-amber-950">Inscripción guardada correctamente en el sistema</p>
-                          <p className="text-[11px] text-amber-800 mt-0.5">
-                            Puedes guardar el comprobante en PDF, enviarlo por WhatsApp o copiarlo a tu correo.
+                          <h3 className="text-base font-black text-emerald-950">
+                            📲 Paso obligatorio para confirmar tu inscripción
+                          </h3>
+                          <p className="text-xs text-emerald-800 font-medium mt-1 leading-relaxed">
+                            Para validar y asegurar tu cupo, <strong>debes enviar el mensaje generado con tus datos a nuestro WhatsApp oficial</strong> tocando el botón a continuación:
                           </p>
+
+                          {lastRegistered && (
+                            <a
+                              href={`https://wa.me/584142525647?text=${encodeURIComponent(
+                                `🏆 *NUEVA INSCRIPCIÓN - DESAFÍO EL VOLCÁN* 🏆\n\n` +
+                                `¡Hola! Acabo de registrar mis datos en la página web para el Desafío El Volcán:\n\n` +
+                                `👤 *Atleta:* ${lastRegistered.fullName}\n` +
+                                `🪪 *Cédula / Documento:* ${lastRegistered.cedula}\n` +
+                                `📧 *Correo:* ${lastRegistered.email}\n` +
+                                (lastRegistered.birthDay && lastRegistered.birthMonth && lastRegistered.birthYear
+                                  ? `🎂 *Nacimiento:* ${lastRegistered.birthDay.padStart(2, '0')}/${lastRegistered.birthMonth.padStart(2, '0')}/${lastRegistered.birthYear} (${lastRegistered.age} años)\n`
+                                  : `🎂 *Edad:* ${lastRegistered.age} años\n`) +
+                                `🏅 *Categoría:* ${lastRegistered.category}\n` +
+                                `📍 *Lugar:* El Volcán, Caracas (3KM Trail & Asfalto)\n\n` +
+                                `Por favor confirmen la recepción de mi inscripción. ¡Muchas gracias!`
+                              )}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="mt-3.5 inline-flex items-center justify-center gap-3 w-full py-4 px-6 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white rounded-2xl font-black text-sm uppercase tracking-wider transition-all shadow-lg shadow-emerald-600/30 text-center"
+                            >
+                              <MessageCircle size={20} className="shrink-0" />
+                              <span>Enviar mi Ficha a WhatsApp (0414-2525647)</span>
+                            </a>
+                          )}
                         </div>
                       </div>
-                    )}
+                    </div>
 
                     {/* OFFICIAL TICKET / VOUCHER CARD */}
                     {lastRegistered && (
                       <div 
                         id="registration-voucher"
-                        className="bg-gradient-to-br from-orange-500 to-amber-600 p-0.5 rounded-[1.75rem] shadow-xl text-left mb-5 overflow-hidden"
+                        className="bg-gradient-to-br from-orange-500 to-amber-600 p-0.5 rounded-[1.75rem] shadow-xl text-left mb-4 overflow-hidden"
                       >
                         <div className="bg-white rounded-[1.65rem] p-5 space-y-3">
                           <div className="flex justify-between items-center border-b border-gray-100 pb-3">
                             <div>
                               <span className="text-[10px] font-black tracking-widest text-orange-600 uppercase block">Desafío El Volcán</span>
-                              <span className="text-xs font-bold text-gray-400">Pase Oficial de Atleta</span>
+                              <span className="text-xs font-bold text-gray-400">Resumen de Registro</span>
                             </div>
                             <span className="px-2.5 py-1 bg-orange-100 text-orange-700 font-black text-[10px] uppercase rounded-full">
-                              Confirmado
+                              Guardado
                             </span>
                           </div>
 
@@ -798,97 +807,43 @@ export default function App() {
                               <span className="font-medium text-gray-700">{lastRegistered.email}</span>
                             </div>
                             <div className="flex justify-between items-center py-1 border-b border-gray-50">
-                              <span className="font-bold text-gray-400 text-[11px]">Lugar & Modalidad</span>
-                              <span className="font-bold text-gray-800">El Volcán • 3KM Trail</span>
+                              <span className="font-bold text-gray-400 text-[11px]">Categoría</span>
+                              <span className="font-black text-orange-600">{lastRegistered.category}</span>
                             </div>
                             <div className="flex justify-between items-center pt-1">
-                              <span className="font-bold text-gray-400 text-[11px]">Código de Ficha</span>
-                              <span className="font-mono font-bold text-orange-600 text-xs">VOLCAN-{lastRegistered.cedula.replace(/\D/g, '').slice(-4) || '2026'}</span>
+                              <span className="font-bold text-gray-400 text-[11px]">Lugar & Modalidad</span>
+                              <span className="font-bold text-gray-800">El Volcán • 3KM Trail</span>
                             </div>
                           </div>
                         </div>
                       </div>
                     )}
 
-                    {/* DIRECT ACTION BUTTONS: WHATSAPP, PRINT/PDF, EMAIL */}
-                    {lastRegistered && (
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-5">
-                        {/* 1. WHATSAPP */}
-                        <a
-                          href={`https://wa.me/?text=${encodeURIComponent(
-                            `🏆 *COMPROBANTE DE INSCRIPCIÓN - DESAFÍO EL VOLCÁN*\n\n` +
-                            `🏃 *Atleta:* ${lastRegistered.fullName}\n` +
-                            `🆔 *Cédula:* ${lastRegistered.cedula}\n` +
-                            `📧 *Correo:* ${lastRegistered.email}\n` +
-                            `📍 *Lugar:* El Volcán, Caracas (3KM Trail Running)\n\n` +
-                            `✅ *Registro confirmado exitosamente.*`
-                          )}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex items-center justify-center gap-2 p-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-black transition-all shadow-md shadow-emerald-200"
-                        >
-                          <MessageCircle size={15} />
-                          <span>WhatsApp</span>
-                        </a>
-
-                        {/* 2. PRINT / PDF */}
-                        <button
-                          type="button"
-                          onClick={() => window.print()}
-                          className="flex items-center justify-center gap-2 p-3 bg-gray-900 hover:bg-black text-white rounded-2xl text-xs font-black transition-all shadow-md shadow-gray-200"
-                        >
-                          <Printer size={15} />
-                          <span>Imprimir / PDF</span>
-                        </button>
-
-                        {/* 3. MAILTO CLIENT */}
-                        <a
-                          href={`mailto:${lastRegistered.email}?subject=${encodeURIComponent('Comprobante de Inscripción: ' + lastRegistered.fullName + ' - Desafío El Volcán')}&body=${encodeURIComponent(
-                            `🏆 DESAFÍO EL VOLCÁN - Comprobante de Inscripción\n\n` +
-                            `Hola ${lastRegistered.fullName},\n\n` +
-                            `Tu registro para el Desafío El Volcán ha sido confirmado:\n\n` +
-                            `- Atleta: ${lastRegistered.fullName}\n` +
-                            `- Cédula: ${lastRegistered.cedula}\n` +
-                            `- Modalidad: 3KM Trail Running / Asfalto\n` +
-                            `- Ubicación: El Volcán, Caracas\n\n` +
-                            `¡Nos vemos en la carrera!`
-                          )}`}
-                          className="flex items-center justify-center gap-2 p-3 bg-orange-100 hover:bg-orange-200 text-orange-800 rounded-2xl text-xs font-black transition-all"
-                        >
-                          <Mail size={15} />
-                          <span>Enviar Mail</span>
-                        </a>
-                      </div>
-                    )}
-
-                    {/* HELPER MODAL LINK FOR ADMIN */}
-                    <div className="bg-gray-50 p-3.5 rounded-2xl border border-gray-200 mb-5 flex items-center justify-between text-left">
-                      <div className="flex items-center gap-2">
-                        <Settings size={14} className="text-gray-500" />
-                        <span className="text-[11px] font-bold text-gray-700">¿Deseas activar el envío automático por Gmail?</span>
-                      </div>
+                    {/* SECONDARY ACTION BUTTONS */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
                       <button
                         type="button"
-                        onClick={() => setShowEmailConfigModal(true)}
-                        className="text-[11px] font-black text-orange-600 hover:underline shrink-0 ml-2"
+                        onClick={() => window.print()}
+                        className="flex items-center justify-center gap-2 p-3 bg-gray-150 hover:bg-gray-200 text-gray-800 rounded-2xl text-xs font-bold transition-all"
                       >
-                        Ver Guía
+                        <Printer size={15} />
+                        <span>Imprimir / Guardar en PDF</span>
+                      </button>
+
+                      <button 
+                        onClick={() => setIsSubmitted(false)}
+                        className="flex items-center justify-center gap-2 p-3 bg-orange-50 hover:bg-orange-100 text-orange-700 rounded-2xl text-xs font-bold transition-all"
+                      >
+                        <span>Registrar a otro participante</span>
                       </button>
                     </div>
 
-                    <div className="border-t border-gray-100 pt-4">
-                      <p className="text-gray-700 font-bold text-xs">
-                        Atención directa a participantes: <a href="https://wa.me/584142526647" target="_blank" rel="noreferrer" className="text-emerald-600 underline font-black">WhatsApp 0414-2526647</a>
+                    <div className="border-t border-gray-100 pt-3 text-center">
+                      <p className="text-gray-500 text-xs">
+                        Número de atención y contacto: <a href="https://wa.me/584142525647" target="_blank" rel="noreferrer" className="text-emerald-600 font-bold hover:underline">0414-2525647</a>
                       </p>
                     </div>
                   </div>
-
-                  <button 
-                    onClick={() => setIsSubmitted(false)}
-                    className="py-3 px-6 bg-orange-500 hover:bg-orange-600 text-white font-black rounded-2xl text-xs uppercase tracking-wider shadow-lg shadow-orange-200 transition-all"
-                  >
-                    Registrar a otro participante
-                  </button>
                 </motion.div>
               )}
 
@@ -997,12 +952,12 @@ export default function App() {
                         <h4 className="text-sm font-black text-emerald-950">WhatsApp de Atención</h4>
                         <p className="text-xs text-emerald-800 mt-0.5">Consultas de atletas, grupos e inscripciones:</p>
                         <a 
-                          href="https://wa.me/584142526647" 
+                          href="https://wa.me/584142525647" 
                           target="_blank" 
                           rel="noreferrer"
                           className="inline-block mt-2 font-black text-sm text-emerald-700 bg-white px-3 py-1.5 rounded-lg border border-emerald-300 shadow-sm"
                         >
-                          +58 414-2526647
+                          +58 414-2525647
                         </a>
                       </div>
                     </div>
@@ -1089,78 +1044,6 @@ export default function App() {
                 className="w-full py-4 bg-orange-500 text-white font-black rounded-2xl hover:bg-orange-600 transition-all text-xs uppercase tracking-wider shadow-lg shadow-orange-200"
               >
                 Continuar
-              </button>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* EMAIL CONFIGURATION / SETUP GUIDE MODAL */}
-      <AnimatePresence>
-        {showEmailConfigModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
-          >
-            <motion.div
-              initial={{ scale: 0.95, y: 10 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.95, y: 10 }}
-              className="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl space-y-5 text-left max-h-[90vh] overflow-y-auto"
-            >
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="text-xl font-black text-gray-900">Activar Envío Automático de Correos</h3>
-                  <p className="text-xs text-gray-500 font-medium mt-0.5">Guía de configuración para la organización</p>
-                </div>
-                <button 
-                  onClick={() => setShowEmailConfigModal(false)}
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-full"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-
-              <div className="space-y-4 text-xs text-gray-600">
-                <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100 space-y-2">
-                  <p className="font-bold text-orange-950 text-sm">¿Por qué no se envían los correos aún?</p>
-                  <p className="text-orange-900 leading-relaxed">
-                    Las aplicaciones web necesitan una conexión segura a tu cuenta de <strong>Gmail</strong> o servicio de correos para poder enviar mensajes a los participantes desde tu servidor.
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <p className="font-black text-gray-900 text-sm">Opción Recomendada: Gmail con Contraseña de Aplicación</p>
-                  <ol className="list-decimal list-inside space-y-1.5 pl-1 leading-relaxed">
-                    <li>Ingresa a tu cuenta de Google (<a href="https://myaccount.google.com/security" target="_blank" rel="noreferrer" className="text-orange-600 underline font-bold">Seguridad de Google</a>).</li>
-                    <li>Activa la <strong>Verificación en 2 pasos</strong> si no la tienes activa.</li>
-                    <li>Busca la sección <strong>"Contraseñas de aplicaciones"</strong> y genera una clave para "Desafío El Volcán" (es un código de 16 letras).</li>
-                    <li>Ve al menú de <strong>Configuración / Secrets (Variables de entorno)</strong> de AI Studio y añade:</li>
-                  </ol>
-
-                  <div className="bg-gray-900 text-gray-100 p-3 rounded-2xl font-mono text-[11px] space-y-1 mt-2">
-                    <p className="text-orange-400"># En Variables de Entorno / Secrets:</p>
-                    <p>GMAIL_USER=johnnyaldanac@gmail.com</p>
-                    <p>GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx</p>
-                    <p>ADMIN_EMAIL=johnnyaldanac@gmail.com</p>
-                  </div>
-                </div>
-
-                <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200">
-                  <p className="font-bold text-emerald-900">✅ Mientras tanto:</p>
-                  <p className="text-emerald-800 text-[11px] mt-0.5">
-                    Todos los registros quedan 100% guardados en la base de datos y puedes enviar los comprobantes al instante por <strong>WhatsApp</strong> o <strong>Imprimir/PDF</strong> con un solo toque.
-                  </p>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setShowEmailConfigModal(false)}
-                className="w-full py-3.5 bg-orange-500 text-white font-black rounded-2xl hover:bg-orange-600 transition-all text-xs uppercase tracking-wider shadow-lg shadow-orange-200"
-              >
-                Entendido
               </button>
             </motion.div>
           </motion.div>
