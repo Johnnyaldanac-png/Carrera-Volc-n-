@@ -9,6 +9,8 @@ import {
   User as UserIcon, 
   CheckCircle2, 
   AlertCircle,
+  AlertTriangle,
+  ShieldAlert,
   ChevronRight,
   Info,
   Facebook,
@@ -725,35 +727,60 @@ export default function App() {
                   transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
                   className="flex flex-col items-center justify-center flex-1 text-center space-y-5 py-4"
                 >
-                  <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center shadow-inner">
-                    <CheckCircle2 size={36} />
+                  {/* RED WARNING ICON BADGE */}
+                  <div className="relative">
+                    <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center shadow-inner border-2 border-red-200">
+                      <AlertTriangle size={36} className="animate-pulse" />
+                    </div>
+                    <span className="absolute -top-1 -right-1 text-xl animate-bounce">⚠️</span>
                   </div>
 
                   <div className="w-full">
-                    <h2 className="text-2xl sm:text-3xl font-black tracking-tight mb-1 text-gray-900">¡Registro Realizado con Éxito!</h2>
-                    <p className="text-gray-600 max-w-md mx-auto mb-4 text-xs sm:text-sm font-medium">
-                      Tus datos han sido guardados en el sistema del Desafío El Volcán.
+                    {/* TOP WARNING PILL */}
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-black uppercase tracking-wider mb-2 border border-red-300">
+                      <ShieldAlert size={14} className="shrink-0" />
+                      <span>Paso Final Obligatorio</span>
+                    </div>
+
+                    <h2 className="text-2xl sm:text-3xl font-black tracking-tight mb-1 text-red-600">
+                      ¡Ya casi estás inscrito!
+                    </h2>
+                    <p className="text-red-950 font-bold max-w-md mx-auto mb-4 text-xs sm:text-sm">
+                      Tus datos fueron pre-registrados, pero <span className="underline decoration-red-500 decoration-2">tu cupo aún NO está confirmado</span>.
                     </p>
 
-                    {/* WHATSAPP ACTION CALLOUT BOX */}
-                    <div className="bg-emerald-50/95 border-2 border-emerald-500/30 rounded-3xl p-5 mb-5 text-left shadow-lg shadow-emerald-500/10">
-                      <div className="flex items-start gap-3">
-                        <div className="p-2.5 bg-emerald-600 text-white rounded-2xl shrink-0 shadow-md">
-                          <MessageCircle size={24} />
+                    {/* RED WHATSAPP CALLOUT BOX WITH WARNING STICKERS */}
+                    <div className="bg-gradient-to-b from-red-50 to-rose-50 border-2 border-red-500 rounded-3xl p-5 mb-5 text-left shadow-xl shadow-red-500/15 relative overflow-hidden">
+                      {/* WARNING STICKER TAG */}
+                      <div className="absolute top-0 right-0 bg-red-600 text-white font-black text-[10px] uppercase px-3 py-1 rounded-bl-xl shadow flex items-center gap-1">
+                        <span>🚨 ACCIÓN REQUERIDA</span>
+                      </div>
+
+                      <div className="flex items-start gap-3 mt-1">
+                        <div className="p-2.5 bg-red-600 text-white rounded-2xl shrink-0 shadow-md">
+                          <MessageCircle size={26} />
                         </div>
-                        <div className="flex-1">
-                          <h3 className="text-base font-black text-emerald-950">
-                            📲 Paso obligatorio para confirmar tu inscripción
+                        <div className="flex-1 pr-16 sm:pr-0">
+                          <h3 className="text-base font-black text-red-900 flex items-center gap-2">
+                            <span>Escribe al WhatsApp para finalizar</span>
                           </h3>
-                          <p className="text-xs text-emerald-800 font-medium mt-1 leading-relaxed">
-                            Para validar y asegurar tu cupo, <strong>debes enviar el mensaje generado con tus datos a nuestro WhatsApp oficial</strong> tocando el botón a continuación:
+                          
+                          {/* CRITICAL NOTE */}
+                          <div className="bg-red-600 text-white p-3 rounded-2xl my-2.5 shadow-md">
+                            <p className="text-xs font-black leading-snug">
+                              ⚠️ NOTA IMPORTANTE: Si no escribes al WhatsApp NO estás inscrito. Debes escribir al WhatsApp obligatoriamente para terminar tu inscripción.
+                            </p>
+                          </div>
+
+                          <p className="text-xs text-red-800 font-medium leading-relaxed">
+                            Haz clic en el botón de abajo para enviar automáticamente tu formulario pre-llenado a nuestro WhatsApp oficial:
                           </p>
 
                           {lastRegistered && (
                             <a
                               href={`https://wa.me/584142525647?text=${encodeURIComponent(
-                                `🏆 *NUEVA INSCRIPCIÓN - DESAFÍO EL VOLCÁN* 🏆\n\n` +
-                                `¡Hola! Acabo de registrar mis datos en la página web para el Desafío El Volcán:\n\n` +
+                                `🏆 *INSCRIPCIÓN PENDIENTE - DESAFÍO EL VOLCÁN* 🏆\n\n` +
+                                `¡Hola! Acabo de registrar mis datos en la web y quiero terminar mi inscripción:\n\n` +
                                 `👤 *Atleta:* ${lastRegistered.fullName}\n` +
                                 `🪪 *Cédula / Documento:* ${lastRegistered.cedula}\n` +
                                 `📧 *Correo:* ${lastRegistered.email}\n` +
@@ -762,34 +789,34 @@ export default function App() {
                                   : `🎂 *Edad:* ${lastRegistered.age} años\n`) +
                                 `🏅 *Categoría:* ${lastRegistered.category}\n` +
                                 `📍 *Lugar:* El Volcán, Caracas (3KM Trail & Asfalto)\n\n` +
-                                `Por favor confirmen la recepción de mi inscripción. ¡Muchas gracias!`
+                                `Por favor confirmen mi cupo oficial. ¡Muchas gracias!`
                               )}`}
                               target="_blank"
                               rel="noreferrer"
-                              className="mt-3.5 inline-flex items-center justify-center gap-3 w-full py-4 px-6 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white rounded-2xl font-black text-sm uppercase tracking-wider transition-all shadow-lg shadow-emerald-600/30 text-center"
+                              className="mt-3 inline-flex items-center justify-center gap-3 w-full py-4 px-6 bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white rounded-2xl font-black text-sm uppercase tracking-wider transition-all shadow-lg shadow-red-600/30 text-center"
                             >
-                              <MessageCircle size={20} className="shrink-0" />
-                              <span>Enviar mi Ficha a WhatsApp (0414-2525647)</span>
+                              <MessageCircle size={22} className="shrink-0" />
+                              <span>Enviar al WhatsApp (0414-2525647) para Completar</span>
                             </a>
                           )}
                         </div>
                       </div>
                     </div>
 
-                    {/* OFFICIAL TICKET / VOUCHER CARD */}
+                    {/* REGISTRATION SUMMARY CARD (RED ACCENTS) */}
                     {lastRegistered && (
                       <div 
                         id="registration-voucher"
-                        className="bg-gradient-to-br from-orange-500 to-amber-600 p-0.5 rounded-[1.75rem] shadow-xl text-left mb-4 overflow-hidden"
+                        className="bg-gradient-to-br from-red-500 to-rose-700 p-0.5 rounded-[1.75rem] shadow-xl text-left mb-4 overflow-hidden"
                       >
                         <div className="bg-white rounded-[1.65rem] p-5 space-y-3">
                           <div className="flex justify-between items-center border-b border-gray-100 pb-3">
                             <div>
-                              <span className="text-[10px] font-black tracking-widest text-orange-600 uppercase block">Desafío El Volcán</span>
-                              <span className="text-xs font-bold text-gray-400">Resumen de Registro</span>
+                              <span className="text-[10px] font-black tracking-widest text-red-600 uppercase block">Desafío El Volcán</span>
+                              <span className="text-xs font-bold text-gray-400">Ficha Técnica del Atleta</span>
                             </div>
-                            <span className="px-2.5 py-1 bg-orange-100 text-orange-700 font-black text-[10px] uppercase rounded-full">
-                              Guardado
+                            <span className="px-2.5 py-1 bg-red-100 text-red-700 font-black text-[10px] uppercase rounded-full border border-red-200 flex items-center gap-1">
+                              <span>⏳ Pendiente de Validación</span>
                             </span>
                           </div>
 
@@ -808,7 +835,7 @@ export default function App() {
                             </div>
                             <div className="flex justify-between items-center py-1 border-b border-gray-50">
                               <span className="font-bold text-gray-400 text-[11px]">Categoría</span>
-                              <span className="font-black text-orange-600">{lastRegistered.category}</span>
+                              <span className="font-black text-red-600">{lastRegistered.category}</span>
                             </div>
                             <div className="flex justify-between items-center pt-1">
                               <span className="font-bold text-gray-400 text-[11px]">Lugar & Modalidad</span>
@@ -824,7 +851,7 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => window.print()}
-                        className="flex items-center justify-center gap-2 p-3 bg-gray-150 hover:bg-gray-200 text-gray-800 rounded-2xl text-xs font-bold transition-all"
+                        className="flex items-center justify-center gap-2 p-3 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-2xl text-xs font-bold transition-all"
                       >
                         <Printer size={15} />
                         <span>Imprimir / Guardar en PDF</span>
@@ -832,7 +859,7 @@ export default function App() {
 
                       <button 
                         onClick={() => setIsSubmitted(false)}
-                        className="flex items-center justify-center gap-2 p-3 bg-orange-50 hover:bg-orange-100 text-orange-700 rounded-2xl text-xs font-bold transition-all"
+                        className="flex items-center justify-center gap-2 p-3 bg-red-50 hover:bg-red-100 text-red-700 rounded-2xl text-xs font-bold transition-all border border-red-200"
                       >
                         <span>Registrar a otro participante</span>
                       </button>
@@ -840,7 +867,7 @@ export default function App() {
 
                     <div className="border-t border-gray-100 pt-3 text-center">
                       <p className="text-gray-500 text-xs">
-                        Número de atención y contacto: <a href="https://wa.me/584142525647" target="_blank" rel="noreferrer" className="text-emerald-600 font-bold hover:underline">0414-2525647</a>
+                        Número de atención y confirmaciones: <a href="https://wa.me/584142525647" target="_blank" rel="noreferrer" className="text-red-600 font-bold hover:underline">0414-2525647</a>
                       </p>
                     </div>
                   </div>
